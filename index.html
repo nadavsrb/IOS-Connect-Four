@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>Connect Four — Neon</title>
+  <meta name="description" content="Play Connect Four on your iPhone — versus a bot or two-player pass-and-play." />
+
+  <!-- PWA / iOS home-screen -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#0a0a1f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Connect 4" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon-180.png" />
+  <link rel="icon" href="icons/icon-192.png" />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app" class="app">
+
+    <!-- ================= MENU ================= -->
+    <section id="screen-menu" class="screen is-active" aria-label="Main menu">
+      <div class="brand">
+        <h1 class="brand-title">CONNECT<span>FOUR</span></h1>
+        <p class="brand-tag">Drop four in a row to win</p>
+      </div>
+
+      <div class="menu-actions">
+        <button id="btn-mode-bot" class="btn btn-primary btn-mode">
+          <span class="btn-mode-icon" aria-hidden="true">🤖</span>
+          <span class="btn-mode-text">
+            <span class="btn-mode-title">Play vs Bot</span>
+            <span class="btn-mode-sub">Beat the computer</span>
+          </span>
+        </button>
+        <button id="btn-mode-2p" class="btn btn-secondary btn-mode">
+          <span class="btn-mode-icon" aria-hidden="true">👥</span>
+          <span class="btn-mode-text">
+            <span class="btn-mode-title">Two Players</span>
+            <span class="btn-mode-sub">Pass &amp; play on this phone</span>
+          </span>
+        </button>
+      </div>
+
+      <div class="menu-footer">
+        <button id="btn-sound" class="chip" aria-pressed="true" title="Toggle sound">
+          <span class="chip-icon">🔊</span><span class="chip-label">Sound</span>
+        </button>
+        <button id="btn-reset-stats" class="chip" title="Reset scoreboard">
+          <span class="chip-icon">🗑️</span><span class="chip-label">Reset scores</span>
+        </button>
+      </div>
+
+      <p class="install-hint">Tip: tap <strong>Share → Add to Home Screen</strong> to play like a real app.</p>
+    </section>
+
+    <!-- ================= SETUP ================= -->
+    <section id="screen-setup" class="screen" aria-label="Match setup">
+      <header class="topbar">
+        <button class="icon-btn" data-nav="menu" aria-label="Back to menu">‹</button>
+        <h2 class="topbar-title">Match Setup</h2>
+        <span class="icon-btn-spacer"></span>
+      </header>
+
+      <div class="setup-body">
+        <div class="player-card" data-seat="1">
+          <div class="player-card-head">
+            <span class="player-dot" id="dot-1"></span>
+            <input id="name-1" class="name-input" type="text" maxlength="14"
+                   autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Player 1" />
+          </div>
+          <div class="swatches" id="swatches-1" role="group" aria-label="Player 1 colour"></div>
+        </div>
+
+        <div class="vs-badge">VS</div>
+
+        <div class="player-card" data-seat="2">
+          <div class="player-card-head">
+            <span class="player-dot" id="dot-2"></span>
+            <input id="name-2" class="name-input" type="text" maxlength="14"
+                   autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Player 2" />
+          </div>
+          <div class="swatches" id="swatches-2" role="group" aria-label="Player 2 colour"></div>
+        </div>
+
+        <div id="difficulty-block" class="difficulty">
+          <p class="field-label">Bot difficulty</p>
+          <div class="segmented" id="difficulty" role="group" aria-label="Bot difficulty">
+            <button class="seg" data-diff="easy">Easy</button>
+            <button class="seg" data-diff="medium">Medium</button>
+            <button class="seg" data-diff="hard">Hard</button>
+          </div>
+        </div>
+      </div>
+
+      <button id="btn-start" class="btn btn-primary btn-wide">Start Game</button>
+    </section>
+
+    <!-- ================= GAME ================= -->
+    <section id="screen-game" class="screen" aria-label="Game">
+      <header class="topbar">
+        <button class="icon-btn" data-nav="menu" aria-label="Quit to menu">‹</button>
+        <div id="turn-indicator" class="turn-indicator">
+          <span class="turn-dot" id="turn-dot"></span>
+          <span class="turn-text" id="turn-text">Player 1's turn</span>
+        </div>
+        <button id="btn-restart" class="icon-btn" aria-label="Restart round">⟳</button>
+      </header>
+
+      <div class="scoreboard" id="scoreboard">
+        <div class="score score-1">
+          <span class="score-name" id="score-name-1">Player 1</span>
+          <span class="score-value" id="score-val-1">0</span>
+        </div>
+        <div class="score score-draw">
+          <span class="score-name">Draws</span>
+          <span class="score-value" id="score-val-d">0</span>
+        </div>
+        <div class="score score-2">
+          <span class="score-name" id="score-name-2">Player 2</span>
+          <span class="score-value" id="score-val-2">0</span>
+        </div>
+      </div>
+
+      <div class="board-wrap">
+        <div id="board" class="board" role="grid" aria-label="Connect Four board"></div>
+      </div>
+
+      <div class="game-controls">
+        <button id="btn-undo" class="btn btn-ghost">↶ Undo</button>
+        <button id="btn-newround" class="btn btn-ghost">New Round</button>
+      </div>
+
+      <!-- Result overlay -->
+      <div id="overlay-result" class="overlay" aria-hidden="true">
+        <div class="result-card">
+          <div class="result-disc" id="result-disc"></div>
+          <h2 class="result-title" id="result-title">Player 1 wins!</h2>
+          <p class="result-sub" id="result-sub"></p>
+          <div class="result-actions">
+            <button id="btn-playagain" class="btn btn-primary btn-wide">Play Again</button>
+            <button class="btn btn-ghost btn-wide" data-nav="menu">Main Menu</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

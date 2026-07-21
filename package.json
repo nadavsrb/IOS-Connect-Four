@@ -1,0 +1,11 @@
+{
+  "name": "connect-four-neon",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Connect Four — a neon PWA that plays on your iPhone (vs bot or two-player pass-and-play).",
+  "scripts": {
+    "test": "node tools/test_engine.mjs",
+    "start": "python3 -m http.server 8080"
+  }
+}
