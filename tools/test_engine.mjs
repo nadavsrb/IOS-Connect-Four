@@ -3,6 +3,7 @@ import {
   P1,
   P2,
   ROWS,
+  COLS,
   createBoard,
   cloneBoard,
   dropDisc,
@@ -10,6 +11,7 @@ import {
   canPop,
   checkWin,
   findWinFor,
+  hasAnyMove,
   isFull,
   legalMoves,
   isColumnFull,
@@ -200,6 +202,30 @@ console.log('Engine: Pop-Out mechanics');
   ok('no win before the pop', findWinFor(b, P1) === null);
   ok('P2 pops its own bottom disc', popDisc(b, 2, P2) === true);
   ok('findWinFor detects P1 four-in-a-row created by the pop', !!findWinFor(b, P1));
+}
+
+console.log('Engine: full-board draw rule (classic vs pop-out)');
+{
+  // Fill the board with a no-win pattern so every column is full.
+  const b = createBoard();
+  const pattern = [
+    [P1, P1, P2, P2, P1, P1, P2],
+    [P1, P1, P2, P2, P1, P1, P2],
+    [P2, P2, P1, P1, P2, P2, P1],
+    [P2, P2, P1, P1, P2, P2, P1],
+    [P1, P1, P2, P2, P1, P1, P2],
+    [P1, P1, P2, P2, P1, P1, P2],
+  ];
+  for (let r = 0; r < 6; r++) for (let c = 0; c < 7; c++) b[r][c] = pattern[r][c];
+  ok('full board: no drop moves left', legalMoves(b).length === 0);
+  ok('classic — full board has no move (draw)', hasAnyMove(b, P1, 'classic') === false);
+  // In pop-out a player can still pop a column whose bottom is their own disc.
+  const bottomHasP1 = Array.from({ length: COLS }, (_, c) => b[ROWS - 1][c]).includes(P1);
+  ok('pop-out — full board still has a move if you can pop', hasAnyMove(b, P1, 'popout') === bottomHasP1 && bottomHasP1);
+  // A player who owns no bottom disc genuinely has no move even in pop-out.
+  const noBottom = createBoard();
+  for (let c = 0; c < COLS; c++) for (let r = 0; r < ROWS; r++) noBottom[r][c] = P2; // all P2
+  ok('pop-out — no own bottom disc anywhere means no move', hasAnyMove(noBottom, P1, 'popout') === false);
 }
 
 console.log('');

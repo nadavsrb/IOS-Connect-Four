@@ -132,6 +132,19 @@ export function canPop(board, col, player) {
 }
 
 /**
+ * Does `player` have any legal move? In classic that's "can drop somewhere"; in
+ * Pop-Out they can also pop one of their own bottom discs, so a full board is not
+ * automatically a draw. Used for draw detection.
+ */
+export function hasAnyMove(board, player, variant) {
+  if (legalMoves(board).length > 0) return true;
+  if (variant === 'popout') {
+    for (let c = 0; c < COLS; c++) if (canPop(board, c, player)) return true;
+  }
+  return false;
+}
+
+/**
  * Pop-Out move: remove `player`'s disc from the BOTTOM of `col`, shifting the
  * whole column down by one (the top cell becomes empty). Mutates `board`.
  * @returns {boolean} true if the pop was legal.

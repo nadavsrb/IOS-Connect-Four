@@ -568,6 +568,12 @@ body::before {
   82%  { transform: translateY(-7%); }
   100% { transform: translateY(0); }
 }
+/* Pop-Out: the popped disc drops out the bottom and shrinks away */
+.disc.popping-out { animation: pop-out 0.3s ease-in forwards; z-index: 4; pointer-events: none; }
+@keyframes pop-out {
+  0%   { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(38%) scale(0.35); opacity: 0; }
+}
 .disc.win {
   animation: winpulse 0.9s ease-in-out infinite;
   box-shadow:

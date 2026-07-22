@@ -15,7 +15,7 @@ import {
   canPop,
   checkWin,
   findWinFor,
-  isFull,
+  hasAnyMove,
   other,
 } from './engine.js';
 import { chooseMove } from './bot.js';
@@ -204,6 +204,14 @@ let selectedTimer = prefs.timerSeconds;
 let selectedVariant = prefs.variant;
 let selectedMatch = prefs.matchTarget;
 let resultPrimaryAction = 'again'; // 'again' | 'next' | 'newmatch'
+
+// Bumped whenever the round is reset/undone; pending async move callbacks compare
+// against it and bail out if the game moved on (prevents phantom moves).
+let moveGen = 0;
+
+function prefersReducedMotion() {
+  return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+}
 
 // Turn-timer bookkeeping
 let timerInterval = null;
@@ -401,6 +409,7 @@ function startGame(mode) {
 }
 
 function resetRoundState() {
+  moveGen++; // invalidate any in-flight move callbacks from the previous round
   stopTurnTimer();
   game.board = createBoard();
   game.current = game.startingPlayer;
@@ -469,6 +478,7 @@ function attemptDrop(col) {
   updateUndoBtn();
   pushSnapshot();
 
+  const gen = moveGen;
   const landing = dropDisc(game.board, col, game.current);
   game.lastMove = { row: landing.row, col: landing.col };
   const disc = placeDisc(landing.row, landing.col, game.current);
@@ -477,9 +487,10 @@ function attemptDrop(col) {
   haptic(12);
 
   const cells = checkWin(game.board, landing.row, landing.col);
-  const draw = !cells && isFull(game.board);
+  const draw = !cells && !hasAnyMove(game.board, other(game.current), game.variant);
 
   onceAnimation(disc, () => {
+    if (gen !== moveGen || !game.active) return; // round was reset / left mid-animation
     if (cells) return endGame(game.current, cells);
     if (draw) return endGame('draw', null);
     passTurn();
@@ -494,23 +505,26 @@ function attemptPop(col) {
   updateUndoBtn();
   pushSnapshot();
 
+  const gen = moveGen;
   popDisc(game.board, col, game.current);
   game.lastMove = null;
-  renderBoardDiscs(); // the whole column shifted — repaint it
+  renderPopAnimated(col); // pop the bottom disc out; the rest fall down a row
   sound.drop();
   haptic([10, 20]);
 
   // A pop can complete four-in-a-row for either player, anywhere on the board.
   const mine = findWinFor(game.board, game.current);
   const theirs = findWinFor(game.board, other(game.current));
+  const draw = !mine && !theirs && !hasAnyMove(game.board, other(game.current), game.variant);
 
   setTimeout(() => {
+    if (gen !== moveGen || !game.active) return; // round was reset / left mid-move
     if (mine && theirs) return endGame('draw', null); // both lines at once → draw
     if (mine) return endGame(game.current, mine);
     if (theirs) return endGame(other(game.current), theirs);
-    if (isFull(game.board)) return endGame('draw', null);
+    if (draw) return endGame('draw', null);
     passTurn();
-  }, 280);
+  }, 400);
 }
 
 function maybeBotMove() {
@@ -519,8 +533,11 @@ function maybeBotMove() {
   game.locked = true;
   updateUndoBtn();
   setThinking(true);
+  const gen = moveGen;
   const delay = 420 + Math.random() * 340;
   setTimeout(() => {
+    // Bail if the round was reset/left, or it's somehow no longer the bot's turn.
+    if (gen !== moveGen || game.over || !game.active || game.current !== P2) return;
     setThinking(false);
     updateTurnIndicator(); // show "Bot's turn" (not "thinking") while the disc drops
     const col = chooseMove(game.board, P2, game.difficulty);
@@ -578,6 +595,7 @@ function undo() {
   let snap = null;
   for (let i = 0; i < plies && game.history.length; i++) snap = game.history.pop();
   if (!snap) return;
+  moveGen++; // invalidate any in-flight callbacks
   game.board = cloneBoard(snap.board);
   game.current = snap.current;
   game.lastMove = snap.last;
@@ -765,7 +783,7 @@ function applyLastMoveMarker() {
   if (d) d.classList.add('last');
 }
 
-// Repaint every disc from game.board (no drop animation). Used after a pop and undo.
+// Repaint every disc from game.board (no drop animation). Used after undo.
 function renderBoardDiscs() {
   boardEl.querySelectorAll('.disc').forEach((d) => d.remove());
   for (let r = 0; r < ROWS; r++) {
@@ -779,6 +797,49 @@ function renderBoardDiscs() {
     }
   }
   applyLastMoveMarker();
+}
+
+// Animate a pop on `col`: the bottom disc drops out, and every disc above slides
+// down one row into place (FLIP). Call *after* popDisc has mutated game.board.
+function renderPopAnimated(col) {
+  if (prefersReducedMotion()) {
+    renderBoardDiscs();
+    return;
+  }
+  boardEl.querySelectorAll('.disc.last').forEach((d) => d.classList.remove('last'));
+
+  const discs = [];
+  for (let r = 0; r < ROWS; r++) discs[r] = cellAt(r, col).querySelector('.disc');
+
+  // The bottom disc is the one popped out — animate it away, then remove.
+  const popped = discs[ROWS - 1];
+  if (popped) {
+    popped.classList.add('popping-out');
+    const remove = () => popped.remove();
+    popped.addEventListener('animationend', remove, { once: true });
+    setTimeout(remove, 450);
+  }
+
+  // Shift each disc above down one row, animating the fall (bottom-up so target
+  // cells are already vacated).
+  for (let r = ROWS - 1; r >= 1; r--) {
+    const disc = discs[r - 1];
+    if (!disc) continue;
+    const fromTop = disc.getBoundingClientRect().top;
+    cellAt(r, col).appendChild(disc); // reparent → new (lower) position
+    const dy = fromTop - disc.getBoundingClientRect().top; // negative: it started higher
+    disc.style.transition = 'none';
+    disc.style.transform = `translateY(${dy}px)`;
+    void disc.offsetWidth; // reflow so the invert sticks
+    disc.style.transition = 'transform 0.34s cubic-bezier(0.34, 0.08, 0.2, 1)';
+    disc.style.transform = 'translateY(0)';
+    const cleanup = () => {
+      disc.style.transition = '';
+      disc.style.transform = '';
+    };
+    disc.addEventListener('transitionend', cleanup, { once: true });
+    setTimeout(cleanup, 500);
+  }
 }
 
 // ---------------------------------------------------------------- confetti

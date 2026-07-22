@@ -181,16 +181,38 @@ try {
   await page.locator('#btn-start').click();
   await wait(300);
   ok('pop toggle visible in Pop-Out', !(await page.locator('#btn-poptoggle').evaluate((el) => el.hidden)));
-  await dropAt(0); // P1 -> bottom of col 0
-  await dropAt(1); // P2 -> bottom of col 1  (now P1's turn again)
-  const beforePop = await discCount();
-  await page.locator('#btn-poptoggle').click(); // arm pop
+  // Stack col 0: P1 (bottom), then P2 on top. Back to P1's turn.
+  await dropAt(0); // P1 → row 5 of col 0
+  await dropAt(0); // P2 → row 4 of col 0 (sits above P1)
+  const beforePop = await discCount(); // 2
+  await page.locator('#btn-poptoggle').click(); // P1 arms pop
   ok('board enters pop-mode when armed', await page.locator('#board').evaluate((el) => el.classList.contains('pop-mode')));
-  await page.locator('#board .cell[data-col="0"]').first().click(); // pop P1's own bottom disc
-  await wait(500);
+  await page.locator('#board .cell[data-col="0"]').first().click(); // P1 pops own bottom; P2 above falls down
+  await page.screenshot({ path: `${SHOTS}/09b-popfall.png` }); // mid-fall
+  await wait(700);
   ok('popping removes a disc (count -1)', (await discCount()) === beforePop - 1);
+  ok('the disc above fell to the bottom row', await page.evaluate(() => {
+    const cell = document.querySelector('#board .cell[data-row="5"][data-col="0"]');
+    return !!(cell && cell.querySelector('.disc'));
+  }));
   ok('pop-mode clears after the move', !(await page.locator('#board').evaluate((el) => el.classList.contains('pop-mode'))));
   await page.screenshot({ path: `${SHOTS}/09-popout.png` });
+
+  // --- Guard: resetting mid-animation must not corrupt the turn (stale callback) ---
+  await goToMenu();
+  await page.locator('#btn-mode-2p').click();
+  await wait(150);
+  await page.locator('#timer-select .seg[data-timer="0"]').click();
+  await page.locator('#variant-select .seg[data-variant="classic"]').click();
+  await page.locator('#match-select .seg[data-match="1"]').click();
+  await page.locator('#btn-start').click();
+  await wait(300);
+  await page.locator('#board .cell[data-col="0"]').first().click(); // P1 drops (still animating)
+  await wait(110);
+  await page.locator('#btn-newround').click(); // reset before the drop settles
+  await wait(800); // the stale drop callback fires here and must be ignored
+  ok('reset mid-animation keeps the correct turn', /Player 2/.test((await page.locator('#turn-text').textContent()) || ''));
+  ok('reset mid-animation leaves an empty board', (await discCount()) === 0);
 
   // --- Turn timer: 15s countdown then timeout loss (slowest, do last) ---
   const statsBefore = JSON.parse(await page.evaluate(() => localStorage.getItem('c4.stats.v1')));
