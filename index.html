@@ -94,6 +94,16 @@
             <button class="seg" data-diff="hard">Hard</button>
           </div>
         </div>
+
+        <div id="timer-block" class="timer-setup">
+          <p class="field-label">Turn timer — lose if it runs out</p>
+          <div class="segmented segmented-4" id="timer-select" role="group" aria-label="Turn timer">
+            <button class="seg" data-timer="0">Off</button>
+            <button class="seg" data-timer="15">15s</button>
+            <button class="seg" data-timer="30">30s</button>
+            <button class="seg" data-timer="60">60s</button>
+          </div>
+        </div>
       </div>
 
       <button id="btn-start" class="btn btn-primary btn-wide">Start Game</button>
@@ -106,6 +116,8 @@
         <div id="turn-indicator" class="turn-indicator">
           <span class="turn-dot" id="turn-dot"></span>
           <span class="turn-text" id="turn-text">Player 1's turn</span>
+          <span class="turn-timer" id="turn-timer" aria-hidden="true" hidden></span>
+          <i id="turn-timerbar" hidden></i>
         </div>
         <button id="btn-restart" class="icon-btn" aria-label="Restart round">⟳</button>
       </header>
@@ -133,6 +145,9 @@
         <button id="btn-undo" class="btn btn-ghost">↶ Undo</button>
         <button id="btn-newround" class="btn btn-ghost">New Round</button>
       </div>
+
+      <!-- Confetti burst layer (populated by JS on a win) -->
+      <div id="confetti" aria-hidden="true"></div>
 
       <!-- Result overlay -->
       <div id="overlay-result" class="overlay" aria-hidden="true">

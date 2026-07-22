@@ -23,8 +23,26 @@ page.on('console', (m) => {
 });
 page.on('pageerror', (e) => consoleErrors.push(String(e)));
 
-async function discCount() {
-  return page.locator('#board .disc').count();
+const discCount = () => page.locator('#board .disc').count();
+const dropAt = async (col, settle = 560) => {
+  await page.locator(`#board .cell[data-col="${col}"]`).first().click();
+  await wait(settle);
+};
+async function goToMenu() {
+  // click the currently-visible screen's back-to-menu button
+  const back = page.locator('.screen.is-active .topbar [data-nav="menu"]');
+  if (await back.count()) {
+    await back.first().click();
+    await wait(200);
+  }
+}
+async function start2p(timer) {
+  await goToMenu();
+  await page.locator('#btn-mode-2p').click();
+  await wait(200);
+  if (timer != null) await page.locator(`#timer-select .seg[data-timer="${timer}"]`).click();
+  await page.locator('#btn-start').click();
+  await wait(300);
 }
 
 try {
@@ -32,71 +50,95 @@ try {
   await page.goto(BASE, { waitUntil: 'networkidle' });
   await wait(400);
   ok('menu renders both mode buttons', (await page.locator('#btn-mode-bot').isVisible()) && (await page.locator('#btn-mode-2p').isVisible()));
+  // start clean so scoreboard asserts are deterministic
+  await page.evaluate(() => localStorage.removeItem('c4.stats.v1'));
+  await page.reload({ waitUntil: 'networkidle' });
+  await wait(300);
   await page.screenshot({ path: `${SHOTS}/01-menu.png` });
 
-  // --- Two-player: play a scripted P1 horizontal win ---
+  // --- Two-player: play a scripted P1 horizontal win (timer off) ---
   await page.locator('#btn-mode-2p').click();
   await wait(300);
-  ok('setup screen shows and hides bot difficulty for 2P', await page.locator('#difficulty-block').evaluate((el) => el.style.display === 'none'));
+  ok('2P setup shows timer control, hides bot difficulty',
+    (await page.locator('#timer-block').isVisible()) &&
+    (await page.locator('#difficulty-block').evaluate((el) => el.style.display === 'none')));
+  await page.locator('#timer-select .seg[data-timer="0"]').click();
   await page.screenshot({ path: `${SHOTS}/02-setup.png` });
   await page.locator('#btn-start').click();
   await wait(300);
-  ok('game screen board has 42 cells', (await page.locator('#board .cell').count()) === 42);
-  await page.screenshot({ path: `${SHOTS}/03-game.png` });
+  ok('game board has 42 cells', (await page.locator('#board .cell').count()) === 42);
 
-  // Bottom-row plan: P1 -> cols 0,1,2,3 ; P2 -> cols 0,1,2 (stacked above)
-  const seq = [0, 0, 1, 1, 2, 2, 3];
-  for (const col of seq) {
-    // tap somewhere in the column (top cell of that column)
-    await page.locator(`#board .cell[data-col="${col}"]`).first().click();
-    await wait(560); // let the drop animation + turn switch settle
-  }
-  await wait(1200); // winning highlight + overlay delay
+  // Bottom-row plan: P1 -> 0,1,2,3 ; P2 -> 0,1,2 (stacked above)
+  await dropAt(0); // P1
+  ok('exactly one last-move marker after a move', (await page.locator('#board .disc.last').count()) === 1);
+  await dropAt(0); // P2
+  await dropAt(1); // P1
+  await page.screenshot({ path: `${SHOTS}/03-discs.png` }); // eyeball the flat disk look
+  await dropAt(1); // P2
+  await dropAt(2); // P1
+  await dropAt(2); // P2
+  await page.locator('#board .cell[data-col="3"]').first().click(); // winning P1 move
+  await wait(900);
+  ok('confetti bursts on win', (await page.locator('#confetti .confetti-piece').count()) > 0);
+  await wait(800);
   ok('four discs highlighted as the winning line', (await page.locator('#board .disc.win').count()) === 4);
-  const overlayOpen = await page.locator('#overlay-result').evaluate((el) => el.classList.contains('is-open'));
-  ok('result overlay opened', overlayOpen);
-  const title = (await page.locator('#result-title').textContent()) || '';
-  ok('result announces a winner', /wins!/.test(title));
+  ok('result overlay opened', await page.locator('#overlay-result').evaluate((el) => el.classList.contains('is-open')));
+  ok('result announces a winner', /wins!/.test((await page.locator('#result-title').textContent()) || ''));
   await page.screenshot({ path: `${SHOTS}/04-win.png` });
+  ok('player 1 win recorded', JSON.parse(await page.evaluate(() => localStorage.getItem('c4.stats.v1')))['1'] === 1);
 
-  // Scoreboard incremented for player 1
-  const statsAfterWin = await page.evaluate(() => localStorage.getItem('c4.stats.v1'));
-  ok('player 1 win recorded in stats', JSON.parse(statsAfterWin)['1'] === 1);
+  // Alternate start: Play Again should hand the first move to Player 2
+  await page.locator('#btn-playagain').click();
+  await wait(300);
+  ok('alternate start — Player 2 goes first next round', /Player 2/.test((await page.locator('#turn-text').textContent()) || ''));
 
-  // Persistence across reload
-  await page.reload({ waitUntil: 'networkidle' });
-  const statsAfterReload = await page.evaluate(() => localStorage.getItem('c4.stats.v1'));
-  ok('stats persist across reload', statsAfterReload === statsAfterWin);
+  // --- Full-column shake: filling a column then tapping it drops nothing ---
+  await start2p(0);
+  for (let i = 0; i < 6; i++) await dropAt(0, 500); // alternating fill, no vertical win
+  const filled = await discCount();
+  ok('column filled with 6 discs', filled === 6);
+  await dropAt(0, 500); // tap the full column
+  ok('tapping a full column adds no disc (shake path)', (await discCount()) === filled);
 
   // --- Bot mode: bot responds with a legal move ---
-  await wait(300);
+  await goToMenu();
   await page.locator('#btn-mode-bot').click();
   await wait(200);
-  await page.locator('.seg[data-diff="hard"]').click();
+  await page.locator('#difficulty .seg[data-diff="hard"]').click();
   await page.locator('#btn-start').click();
   await wait(300);
   const before = await discCount();
   await page.locator('#board .cell[data-col="3"]').first().click();
-  // wait for bot to move: disc count should reach 2 (human + bot)
   let botMoved = false;
   for (let i = 0; i < 30; i++) {
     await wait(150);
-    if ((await discCount()) >= before + 2) {
-      botMoved = true;
-      break;
-    }
+    if ((await discCount()) >= before + 2) { botMoved = true; break; }
   }
   ok('hard bot responds with a move', botMoved);
   await page.screenshot({ path: `${SHOTS}/05-bot.png` });
+  ok('bot mode has no turn timer', await page.locator('#turn-timer').evaluate((el) => el.hidden));
 
-  // --- Service worker / manifest reachable ---
-  const swStatus = await page.evaluate(async () => {
-    const res = await fetch('service-worker.js');
-    return res.status;
-  });
-  ok('service-worker.js served', swStatus === 200);
-  const manStatus = await page.evaluate(async () => (await fetch('manifest.webmanifest')).status);
-  ok('manifest.webmanifest served', manStatus === 200);
+  // --- PWA assets reachable ---
+  ok('service-worker.js served', (await page.evaluate(async () => (await fetch('service-worker.js')).status)) === 200);
+  ok('manifest.webmanifest served', (await page.evaluate(async () => (await fetch('manifest.webmanifest')).status)) === 200);
+
+  // --- Turn timer: 15s countdown then timeout loss (slowest, do last) ---
+  const statsBefore = JSON.parse(await page.evaluate(() => localStorage.getItem('c4.stats.v1')));
+  await start2p(15);
+  ok('timer is visible in two-player mode', !(await page.locator('#turn-timer').evaluate((el) => el.hidden)));
+  const t1 = (await page.locator('#turn-timer').textContent()) || '';
+  const toSec = (s) => { const [m, ss] = s.split(':').map(Number); return m * 60 + ss; };
+  await page.screenshot({ path: `${SHOTS}/06-timer.png` });
+  await wait(2500);
+  const t2 = (await page.locator('#turn-timer').textContent()) || '';
+  ok('countdown decreases while running', toSec(t2) < toSec(t1));
+  // let the remaining ~12.5s expire (no move)
+  await wait(14000);
+  ok('timeout opens the result overlay', await page.locator('#overlay-result').evaluate((el) => el.classList.contains('is-open')));
+  ok('timeout message shown', /ran out of time/.test((await page.locator('#result-sub').textContent()) || ''));
+  const statsAfter = JSON.parse(await page.evaluate(() => localStorage.getItem('c4.stats.v1')));
+  ok('opponent (Player 2) awarded the timeout win', statsAfter['2'] === (statsBefore['2'] || 0) + 1);
+  await page.screenshot({ path: `${SHOTS}/07-timeout.png` });
 
   ok('no console/page errors during run', consoleErrors.length === 0);
   if (consoleErrors.length) console.log('    errors:', consoleErrors.slice(0, 5));

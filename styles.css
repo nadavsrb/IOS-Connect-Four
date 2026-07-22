@@ -342,10 +342,14 @@ body::before {
   background: linear-gradient(135deg, rgba(123, 92, 255, 0.55), rgba(61, 215, 255, 0.4));
   box-shadow: 0 4px 18px rgba(123, 92, 255, 0.35);
 }
+.segmented-4 { grid-template-columns: repeat(4, 1fr); }
+.timer-setup { margin-top: 12px; }
 
 /* ---------------- Game ---------------- */
 
 .turn-indicator {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -375,6 +379,31 @@ body::before {
 }
 .turn-indicator.thinking .turn-dot { animation: pulse 0.9s ease-in-out infinite; }
 @keyframes pulse { 50% { transform: scale(0.7); opacity: 0.6; } }
+
+/* Turn timer (two-player mode) */
+.turn-timer {
+  flex: 0 0 auto;
+  font-weight: 800;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  padding-left: 4px;
+}
+.turn-timer[hidden] { display: none; }
+.turn-indicator.urgent .turn-timer { color: #ff5470; }
+.turn-indicator.urgent .turn-text { color: #ff5470; }
+#turn-timerbar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 100%;
+  background: var(--turn-color, var(--p1));
+  transform-origin: left center;
+  box-shadow: 0 0 8px 1px var(--turn-color, var(--p1));
+}
+#turn-timerbar[hidden] { display: none; }
+.turn-indicator.urgent #turn-timerbar { background: #ff5470; box-shadow: 0 0 8px 1px #ff5470; }
 
 .scoreboard {
   display: grid;
@@ -435,6 +464,14 @@ body::before {
   position: relative;
   cursor: pointer;
 }
+.cell.shake { animation: shake 0.4s ease; }
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-5%); }
+  40% { transform: translateX(5%); }
+  60% { transform: translateX(-3%); }
+  80% { transform: translateX(3%); }
+}
 .socket {
   position: absolute;
   inset: 0;
@@ -448,14 +485,54 @@ body::before {
   box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.8), 0 0 0 2px var(--stroke-bright);
 }
 
+/* A flat Connect Four "token" (checker) seen head-on — not a glossy ball.
+   Centred fill + faint top light for a slight bevel, a dark edge rim, and a soft
+   neon glow. The concentric ridge (::before) and centre dimple (::after) sell the disk. */
 .disc {
   position: absolute;
   inset: 6%;
   border-radius: 50%;
   background:
-    radial-gradient(circle at 34% 30%, rgba(255, 255, 255, 0.85), var(--disc) 42%, color-mix(in srgb, var(--disc) 70%, black) 100%);
-  box-shadow: 0 0 14px 2px var(--disc), inset 0 -3px 6px rgba(0, 0, 0, 0.35);
+    radial-gradient(circle at 50% 34%,
+      color-mix(in srgb, var(--disc) 78%, white) 0%,
+      var(--disc) 46%,
+      color-mix(in srgb, var(--disc) 82%, black) 100%);
+  box-shadow:
+    0 0 10px 1px color-mix(in srgb, var(--disc) 70%, transparent),
+    inset 0 0 0 2px color-mix(in srgb, var(--disc) 55%, black),
+    inset 0 2px 3px rgba(255, 255, 255, 0.18),
+    inset 0 -3px 5px rgba(0, 0, 0, 0.3);
   will-change: transform;
+}
+/* raised concentric ring, like the ridge on a real checker */
+.disc::before {
+  content: "";
+  position: absolute;
+  inset: 17%;
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 0 2px color-mix(in srgb, var(--disc) 45%, black),
+    0 1px 0 rgba(255, 255, 255, 0.14);
+}
+/* small centre dimple */
+.disc::after {
+  content: "";
+  position: absolute;
+  inset: 38%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%,
+    color-mix(in srgb, var(--disc) 70%, white),
+    color-mix(in srgb, var(--disc) 88%, black));
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+/* last-move marker: a crisp thin light ring */
+.disc.last {
+  box-shadow:
+    0 0 10px 1px color-mix(in srgb, var(--disc) 70%, transparent),
+    inset 0 0 0 2px color-mix(in srgb, var(--disc) 55%, black),
+    inset 0 2px 3px rgba(255, 255, 255, 0.18),
+    inset 0 -3px 5px rgba(0, 0, 0, 0.3),
+    0 0 0 3px rgba(255, 255, 255, 0.55);
 }
 .disc.dropping { animation: drop 0.42s cubic-bezier(0.32, 0.12, 0.32, 1) both; z-index: 3; }
 @keyframes drop {
@@ -466,7 +543,11 @@ body::before {
 }
 .disc.win {
   animation: winpulse 0.9s ease-in-out infinite;
-  box-shadow: 0 0 22px 6px var(--disc), 0 0 40px 10px var(--disc), inset 0 -3px 6px rgba(0, 0, 0, 0.35);
+  box-shadow:
+    0 0 22px 6px var(--disc),
+    0 0 40px 10px var(--disc),
+    inset 0 0 0 2px color-mix(in srgb, var(--disc) 55%, black),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.3);
   z-index: 2;
 }
 @keyframes winpulse { 50% { transform: scale(1.08); } }
@@ -510,16 +591,63 @@ body::before {
 }
 .overlay.is-open .result-card { transform: scale(1); }
 .result-disc {
-  width: 64px; height: 64px;
+  --disc: var(--p1);
+  position: relative;
+  width: 68px; height: 68px;
   border-radius: 50%;
   margin: 0 auto 16px;
-  background: radial-gradient(circle at 34% 30%, rgba(255,255,255,0.85), var(--disc, var(--p1)) 42%);
-  box-shadow: 0 0 26px 8px var(--disc, var(--p1));
+  background:
+    radial-gradient(circle at 50% 34%,
+      color-mix(in srgb, var(--disc) 78%, white) 0%,
+      var(--disc) 46%,
+      color-mix(in srgb, var(--disc) 82%, black) 100%);
+  box-shadow:
+    0 0 26px 8px color-mix(in srgb, var(--disc) 70%, transparent),
+    inset 0 0 0 2px color-mix(in srgb, var(--disc) 55%, black),
+    inset 0 2px 3px rgba(255, 255, 255, 0.18),
+    inset 0 -3px 5px rgba(0, 0, 0, 0.3);
 }
-.result-disc.draw { background: var(--text-dim); box-shadow: 0 0 20px 4px var(--text-dim); }
+.result-disc::before {
+  content: "";
+  position: absolute;
+  inset: 17%;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--disc) 45%, black), 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+.result-disc::after {
+  content: "";
+  position: absolute;
+  inset: 38%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--disc) 70%, white), color-mix(in srgb, var(--disc) 88%, black));
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.result-disc.draw {
+  background: var(--text-dim);
+  box-shadow: 0 0 20px 4px var(--text-dim), inset 0 -3px 5px rgba(0, 0, 0, 0.3);
+}
+.result-disc.draw::before, .result-disc.draw::after { display: none; }
 .result-title { margin: 0 0 6px; font-size: 1.7rem; font-weight: 800; }
 .result-sub { margin: 0 0 22px; color: var(--text-dim); }
 .result-actions { display: flex; flex-direction: column; gap: 10px; }
+
+/* ---------------- Confetti ---------------- */
+
+#confetti {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 5;
+}
+.confetti-piece {
+  position: absolute;
+  top: -12px;
+  width: 10px;
+  height: 14px;
+  border-radius: 2px;
+  will-change: transform, opacity;
+}
 
 /* ---------------- Accessibility ---------------- */
 
@@ -529,4 +657,5 @@ body::before {
   .disc.dropping { animation-duration: 0.18s; }
   .disc.win { animation: none; }
   .turn-indicator.thinking .turn-dot { animation: none; }
+  .cell.shake { animation: none; }
 }

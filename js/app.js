@@ -39,6 +39,7 @@ const DEFAULT_PREFS = {
   c1: '#ff3d7f',
   c2: '#3dd7ff',
   difficulty: 'medium',
+  timerSeconds: 0, // 0 = off; two-player mode only
   muted: false,
 };
 
@@ -113,6 +114,9 @@ const sound = (() => {
     click() {
       tone(460, 0.05, 'square', 0.04);
     },
+    tick() {
+      tone(700, 0.05, 'sine', 0.05);
+    },
   };
 })();
 
@@ -143,7 +147,12 @@ const name2 = $('#name-2');
 const swatches1 = $('#swatches-1');
 const swatches2 = $('#swatches-2');
 const difficultyBlock = $('#difficulty-block');
-const diffSegs = Array.from(document.querySelectorAll('.seg'));
+const diffSegs = Array.from(document.querySelectorAll('#difficulty .seg'));
+const timerBlock = $('#timer-block');
+const timerSegs = Array.from(document.querySelectorAll('#timer-select .seg'));
+const turnTimerEl = $('#turn-timer');
+const turnTimerBar = $('#turn-timerbar');
+const confettiLayer = $('#confetti');
 const soundChip = $('#btn-sound');
 
 // ---------------------------------------------------------------- state
@@ -153,10 +162,12 @@ const game = {
   difficulty: 'medium',
   board: createBoard(),
   current: P1,
+  startingPlayer: P1,
   active: false,
   over: false,
   locked: false,
   history: [],
+  timerSeconds: 0,
   names: { 1: 'Player 1', 2: 'Player 2' },
   colors: { 1: '#ff3d7f', 2: '#3dd7ff' },
 };
@@ -164,6 +175,12 @@ const game = {
 let pendingMode = 'bot';
 const selectedColor = { 1: prefs.c1, 2: prefs.c2 };
 let selectedDifficulty = prefs.difficulty;
+let selectedTimer = prefs.timerSeconds;
+
+// Turn-timer bookkeeping
+let timerInterval = null;
+let timerDeadline = 0;
+let lastTickSecond = -1;
 
 const colorFor = (player) => game.colors[player];
 
@@ -222,9 +239,15 @@ function refreshDifficulty() {
   diffSegs.forEach((s) => s.setAttribute('aria-pressed', String(s.dataset.diff === selectedDifficulty)));
 }
 
+function refreshTimer() {
+  timerSegs.forEach((s) => s.setAttribute('aria-pressed', String(Number(s.dataset.timer) === selectedTimer)));
+}
+
 function openSetup(mode) {
   pendingMode = mode;
+  // Difficulty is bot-only; the turn timer is two-player-only.
   difficultyBlock.style.display = mode === 'bot' ? '' : 'none';
+  timerBlock.style.display = mode === '2p' ? '' : 'none';
 
   name1.value = prefs.p1name;
   name1.placeholder = mode === 'bot' ? 'You' : 'Player 1';
@@ -234,9 +257,11 @@ function openSetup(mode) {
   selectedColor[1] = prefs.c1;
   selectedColor[2] = prefs.c2 === prefs.c1 ? firstFreeColor(prefs.c1) : prefs.c2;
   selectedDifficulty = prefs.difficulty;
+  selectedTimer = prefs.timerSeconds;
 
   refreshSwatches();
   refreshDifficulty();
+  refreshTimer();
   applySelectedColors();
   showScreen('screen-setup');
 }
@@ -256,6 +281,7 @@ function startFromSetup() {
   prefs.c1 = selectedColor[1];
   prefs.c2 = selectedColor[2];
   prefs.difficulty = selectedDifficulty;
+  if (pendingMode === '2p') prefs.timerSeconds = selectedTimer;
   savePrefs();
   startGame(pendingMode);
 }
@@ -310,6 +336,8 @@ function onceAnimation(disc, cb) {
 function startGame(mode) {
   game.mode = mode;
   game.difficulty = selectedDifficulty;
+  game.timerSeconds = mode === '2p' ? selectedTimer : 0; // timer is two-player only
+  game.startingPlayer = P1; // a brand-new match always starts with Player 1
   game.names[1] = name1.value.trim() || name1.placeholder;
   game.names[2] = name2.value.trim() || name2.placeholder;
   game.colors[1] = selectedColor[1];
@@ -323,8 +351,9 @@ function startGame(mode) {
 }
 
 function resetRoundState() {
+  stopTurnTimer();
   game.board = createBoard();
-  game.current = P1;
+  game.current = game.startingPlayer;
   game.active = true;
   game.over = false;
   game.locked = false;
@@ -333,9 +362,12 @@ function resetRoundState() {
   updateTurnIndicator();
   updateUndoBtn();
   closeOverlay();
+  startTurnTimer();
+  maybeBotMove(); // handles the case where the bot is the starting player this round
 }
 
 function restartRound() {
+  game.startingPlayer = other(game.startingPlayer); // alternate who goes first each round
   resetRoundState();
 }
 
@@ -349,14 +381,19 @@ function attemptDrop(col) {
   if (col == null) return;
   const landing = dropDisc(game.board, col, game.current);
   if (!landing) {
+    // Column is full — shake it and buzz instead of silently ignoring the tap.
+    shakeColumn(col);
     sound.invalid();
+    haptic([15, 30, 15]);
     return;
   }
+  stopTurnTimer(); // the move was made in time
   game.locked = true;
   updateUndoBtn();
   game.history.push({ row: landing.row, col: landing.col, player: game.current });
 
   const disc = placeDisc(landing.row, landing.col, game.current);
+  markLastMove(disc);
   sound.drop();
   haptic(12);
 
@@ -370,6 +407,7 @@ function attemptDrop(col) {
     updateTurnIndicator();
     game.locked = false;
     updateUndoBtn();
+    startTurnTimer();
     maybeBotMove();
   });
 }
@@ -393,10 +431,11 @@ function maybeBotMove() {
   }, delay);
 }
 
-function endGame(winner, cells) {
+function endGame(winner, cells, reason) {
   game.over = true;
   game.active = false;
   game.locked = true;
+  stopTurnTimer();
   updateUndoBtn();
 
   if (winner === 'draw') {
@@ -405,15 +444,16 @@ function endGame(winner, cells) {
     renderScores();
     sound.draw();
     haptic([20, 40, 20]);
-    setTimeout(() => showResult('draw'), 300);
+    setTimeout(() => showResult('draw', reason), 300);
   } else {
     stats[winner]++;
     saveStats();
     renderScores();
-    highlightWin(cells);
+    if (cells) highlightWin(cells); // timeout wins have no line to highlight
+    burstConfetti();
     sound.win();
     haptic([30, 30, 30, 30, 140]);
-    setTimeout(() => showResult(winner), 850); // let the winning line shine first
+    setTimeout(() => showResult(winner, reason), cells ? 850 : 450);
   }
 }
 
@@ -434,8 +474,10 @@ function undo() {
     if (disc) disc.remove();
     game.current = m.player; // that player is on the move again
   }
+  refreshLastMove(); // move the marker back to the new most-recent disc
   updateTurnIndicator();
   updateUndoBtn();
+  startTurnTimer(); // restart this player's countdown
   sound.click();
 }
 
@@ -476,17 +518,19 @@ function resultSub(winner) {
   return 'Four in a row! 🎉';
 }
 
-function showResult(winner) {
+function showResult(winner, reason) {
   const disc = $('#result-disc');
   if (winner === 'draw') {
     disc.className = 'result-disc draw';
+    disc.style.removeProperty('--disc');
     $('#result-title').textContent = "It's a draw!";
     $('#result-sub').textContent = 'The board filled up — nobody connected four.';
   } else {
     disc.className = 'result-disc';
     disc.style.setProperty('--disc', colorFor(winner));
     $('#result-title').textContent = `${game.names[winner]} wins!`;
-    $('#result-sub').textContent = resultSub(winner);
+    $('#result-sub').textContent =
+      reason === 'timeout' ? `${game.names[other(winner)]} ran out of time ⏱` : resultSub(winner);
   }
   overlay.classList.add('is-open');
   overlay.setAttribute('aria-hidden', 'false');
@@ -500,11 +544,148 @@ function closeOverlay() {
 // ---------------------------------------------------------------- navigation
 
 function goMenu() {
+  stopTurnTimer();
   game.active = false;
   game.over = false;
   game.locked = false;
   closeOverlay();
   showScreen('screen-menu');
+}
+
+// ---------------------------------------------------------------- turn timer
+
+function formatClock(sec) {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function startTurnTimer() {
+  stopTurnTimer();
+  if (!(game.timerSeconds > 0) || !game.active || game.over) return;
+  timerDeadline = Date.now() + game.timerSeconds * 1000;
+  lastTickSecond = -1;
+  turnTimerEl.hidden = false;
+  turnTimerBar.hidden = false;
+  turnTimerEl.setAttribute('aria-hidden', 'false');
+  tickTimer();
+  timerInterval = setInterval(tickTimer, 200);
+}
+
+function stopTurnTimer() {
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+  turnTimerEl.hidden = true;
+  turnTimerBar.hidden = true;
+  turnTimerEl.setAttribute('aria-hidden', 'true');
+  turnIndicator.classList.remove('urgent');
+}
+
+function tickTimer() {
+  const remainingMs = Math.max(0, timerDeadline - Date.now());
+  const remaining = Math.ceil(remainingMs / 1000);
+  turnTimerEl.textContent = formatClock(remaining);
+  turnTimerBar.style.width = `${Math.max(0, Math.min(1, remainingMs / (game.timerSeconds * 1000))) * 100}%`;
+
+  const urgent = remaining <= 5 && remainingMs > 0;
+  turnIndicator.classList.toggle('urgent', urgent);
+  if (urgent && remaining !== lastTickSecond) {
+    lastTickSecond = remaining;
+    sound.tick();
+    haptic(8);
+  }
+
+  if (remainingMs <= 0) {
+    stopTurnTimer();
+    onTimeout();
+  }
+}
+
+function onTimeout() {
+  if (!game.active || game.over) return;
+  const loser = game.current;
+  endGame(other(loser), null, 'timeout'); // running out of time loses the game
+}
+
+// ---------------------------------------------------------------- last-move marker
+
+function markLastMove(disc) {
+  boardEl.querySelectorAll('.disc.last').forEach((d) => d.classList.remove('last'));
+  if (disc) disc.classList.add('last');
+}
+
+function refreshLastMove() {
+  const top = game.history[game.history.length - 1];
+  const disc = top ? cellAt(top.row, top.col).querySelector('.disc') : null;
+  markLastMove(disc);
+}
+
+// ---------------------------------------------------------------- confetti
+
+function burstConfetti() {
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (!confettiLayer) return;
+
+  const colors = [game.colors[1], game.colors[2], '#ffd23f', '#7cff6b', '#b26bff', '#3dd7ff'];
+  const rect = confettiLayer.getBoundingClientRect();
+  const width = rect.width || 360;
+  const pieces = [];
+  const COUNT = 90;
+
+  for (let i = 0; i < COUNT; i++) {
+    const el = document.createElement('div');
+    el.className = 'confetti-piece';
+    el.style.background = colors[i % colors.length];
+    el.style.left = `${Math.random() * width}px`;
+    confettiLayer.appendChild(el);
+    pieces.push({
+      el,
+      x: 0,
+      y: -20 - Math.random() * 40,
+      vx: (Math.random() - 0.5) * 4,
+      vy: 2 + Math.random() * 4,
+      rot: Math.random() * 360,
+      vr: (Math.random() - 0.5) * 24,
+      life: 0,
+    });
+  }
+
+  const gravity = 0.18;
+  const start = performance.now();
+  function frame(now) {
+    const t = now - start;
+    for (const p of pieces) {
+      p.vy += gravity;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.rot += p.vr;
+      const opacity = t < 900 ? 1 : Math.max(0, 1 - (t - 900) / 400);
+      p.el.style.transform = `translate(${p.x}px, ${p.y}px) rotate(${p.rot}deg)`;
+      p.el.style.opacity = String(opacity);
+    }
+    if (t < 1300) {
+      requestAnimationFrame(frame);
+    } else {
+      pieces.forEach((p) => p.el.remove());
+    }
+  }
+  requestAnimationFrame(frame);
+}
+
+// ---------------------------------------------------------------- full-column shake
+
+function shakeColumn(col) {
+  for (let r = 0; r < ROWS; r++) {
+    const cell = cellAt(r, col);
+    if (!cell) continue;
+    cell.classList.remove('shake');
+    // force reflow so re-adding the class restarts the animation
+    void cell.offsetWidth;
+    cell.classList.add('shake');
+    cell.addEventListener('animationend', () => cell.classList.remove('shake'), { once: true });
+  }
 }
 
 // ---------------------------------------------------------------- sound toggle & stats reset
@@ -569,6 +750,14 @@ function wire() {
     seg.addEventListener('click', () => {
       selectedDifficulty = seg.dataset.diff;
       refreshDifficulty();
+      sound.click();
+    });
+  });
+
+  timerSegs.forEach((seg) => {
+    seg.addEventListener('click', () => {
+      selectedTimer = Number(seg.dataset.timer);
+      refreshTimer();
       sound.click();
     });
   });
