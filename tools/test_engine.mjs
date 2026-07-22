@@ -2,10 +2,14 @@
 import {
   P1,
   P2,
+  ROWS,
   createBoard,
   cloneBoard,
   dropDisc,
+  popDisc,
+  canPop,
   checkWin,
+  findWinFor,
   isFull,
   legalMoves,
   isColumnFull,
@@ -162,6 +166,40 @@ console.log('Bot: hard never immediately loses over a full self-play game vs ran
     }
   }
   ok('hard self-play completed without throwing', clean);
+}
+
+console.log('Engine: Pop-Out mechanics');
+{
+  const b = createBoard();
+  // Column 0 from bottom: P1, P2, P1
+  dropDisc(b, 0, P1);
+  dropDisc(b, 0, P2);
+  dropDisc(b, 0, P1);
+  ok('canPop true for own disc at the bottom', canPop(b, 0, P1));
+  ok('canPop false for opponent bottom disc', !canPop(b, 0, P2));
+  ok('popDisc rejects popping opponent bottom', popDisc(b, 0, P2) === false);
+
+  const before = b.map((row) => row.slice());
+  ok('popDisc succeeds for own bottom disc', popDisc(b, 0, P1) === true);
+  // after pop, the column shifts down: bottom was P1(removed) -> now P2 at bottom, P1 above
+  ok('bottom cell shifted down (now P2)', b[ROWS - 1][0] === P2);
+  ok('cell above is the old top disc (P1)', b[ROWS - 2][0] === P1);
+  ok('top of the column is now empty', b[ROWS - 3][0] === 0);
+  ok('pop changed the board', JSON.stringify(before) !== JSON.stringify(b));
+}
+{
+  // A pop can complete four-in-a-row for the OPPONENT (classic Pop-Out rule).
+  // Bottom row: P1 P1 _ P1 with col2 = [P2 (bottom), P1 (above)]. When P2 pops its
+  // own bottom disc, the P1 above slides to the bottom row → P1 gets four across.
+  const b = createBoard();
+  b[ROWS - 1][0] = P1;
+  b[ROWS - 1][1] = P1;
+  b[ROWS - 1][3] = P1;
+  b[ROWS - 1][2] = P2; // P2's own disc at the bottom of column 2
+  b[ROWS - 2][2] = P1; // a P1 sits on top of it
+  ok('no win before the pop', findWinFor(b, P1) === null);
+  ok('P2 pops its own bottom disc', popDisc(b, 2, P2) === true);
+  ok('findWinFor detects P1 four-in-a-row created by the pop', !!findWinFor(b, P1));
 }
 
 console.log('');

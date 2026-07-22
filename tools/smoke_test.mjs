@@ -29,7 +29,16 @@ const dropAt = async (col, settle = 560) => {
   await wait(settle);
 };
 async function goToMenu() {
-  // click the currently-visible screen's back-to-menu button
+  // if the result overlay is open, its Main Menu button is the clickable one
+  const overlayOpen = await page
+    .locator('#overlay-result')
+    .evaluate((el) => el.classList.contains('is-open'))
+    .catch(() => false);
+  if (overlayOpen) {
+    await page.locator('#overlay-result [data-nav="menu"]').click();
+    await wait(200);
+    return;
+  }
   const back = page.locator('.screen.is-active .topbar [data-nav="menu"]');
   if (await back.count()) {
     await back.first().click();
@@ -55,6 +64,20 @@ try {
   await page.reload({ waitUntil: 'networkidle' });
   await wait(300);
   await page.screenshot({ path: `${SHOTS}/01-menu.png` });
+
+  // --- Theme switcher ---
+  const themeOf = () => page.evaluate(() => document.documentElement.getAttribute('data-theme'));
+  ok('default theme is neon', (await themeOf()) === 'neon');
+  await page.locator('#btn-theme').click();
+  ok('theme cycles to classic', (await themeOf()) === 'classic');
+  await page.screenshot({ path: `${SHOTS}/01b-classic.png` });
+  await page.locator('#btn-theme').click();
+  ok('theme cycles to minimal', (await themeOf()) === 'minimal');
+  await page.screenshot({ path: `${SHOTS}/01c-minimal.png` });
+  await page.reload({ waitUntil: 'networkidle' });
+  ok('theme persists across reload', (await themeOf()) === 'minimal');
+  await page.locator('#btn-theme').click(); // back to neon for the remaining shots
+  ok('theme cycles back to neon', (await themeOf()) === 'neon');
 
   // --- Two-player: play a scripted P1 horizontal win (timer off) ---
   await page.locator('#btn-mode-2p').click();
@@ -121,6 +144,53 @@ try {
   // --- PWA assets reachable ---
   ok('service-worker.js served', (await page.evaluate(async () => (await fetch('service-worker.js')).status)) === 200);
   ok('manifest.webmanifest served', (await page.evaluate(async () => (await fetch('manifest.webmanifest')).status)) === 200);
+
+  // --- Best-of-3 match series (first mover wins each round with the same pattern) ---
+  async function firstMoverWins() {
+    for (const col of [0, 0, 1, 1, 2, 2, 3]) await dropAt(col, 520);
+    await wait(1200);
+  }
+  await goToMenu();
+  await page.locator('#btn-mode-2p').click();
+  await wait(150);
+  await page.locator('#timer-select .seg[data-timer="0"]').click();
+  await page.locator('#variant-select .seg[data-variant="classic"]').click();
+  await page.locator('#match-select .seg[data-match="2"]').click(); // best of 3 → first to 2
+  await page.locator('#btn-start').click();
+  await wait(300);
+  ok('series pips shown for a best-of match', !(await page.locator('#series-line').evaluate((el) => el.hidden)));
+  await firstMoverWins(); // round 1 → P1
+  ok('round win offers Next Round', ((await page.locator('#btn-playagain').textContent()) || '').includes('Next Round'));
+  await page.locator('#btn-playagain').click();
+  await wait(400);
+  await firstMoverWins(); // round 2 → P2 (alternate start)
+  await page.locator('#btn-playagain').click();
+  await wait(400);
+  await firstMoverWins(); // round 3 → P1 reaches 2 → match
+  ok('match completes with a match win', /wins the match/.test((await page.locator('#result-title').textContent()) || ''));
+  ok('match win offers New Match', ((await page.locator('#btn-playagain').textContent()) || '').includes('New Match'));
+  await page.screenshot({ path: `${SHOTS}/08-match.png` });
+
+  // --- Pop-Out variant: pop your own bottom disc, removing it ---
+  await goToMenu();
+  await page.locator('#btn-mode-2p').click();
+  await wait(150);
+  await page.locator('#timer-select .seg[data-timer="0"]').click();
+  await page.locator('#variant-select .seg[data-variant="popout"]').click();
+  await page.locator('#match-select .seg[data-match="1"]').click();
+  await page.locator('#btn-start').click();
+  await wait(300);
+  ok('pop toggle visible in Pop-Out', !(await page.locator('#btn-poptoggle').evaluate((el) => el.hidden)));
+  await dropAt(0); // P1 -> bottom of col 0
+  await dropAt(1); // P2 -> bottom of col 1  (now P1's turn again)
+  const beforePop = await discCount();
+  await page.locator('#btn-poptoggle').click(); // arm pop
+  ok('board enters pop-mode when armed', await page.locator('#board').evaluate((el) => el.classList.contains('pop-mode')));
+  await page.locator('#board .cell[data-col="0"]').first().click(); // pop P1's own bottom disc
+  await wait(500);
+  ok('popping removes a disc (count -1)', (await discCount()) === beforePop - 1);
+  ok('pop-mode clears after the move', !(await page.locator('#board').evaluate((el) => el.classList.contains('pop-mode'))));
+  await page.screenshot({ path: `${SHOTS}/09-popout.png` });
 
   // --- Turn timer: 15s countdown then timeout loss (slowest, do last) ---
   const statsBefore = JSON.parse(await page.evaluate(() => localStorage.getItem('c4.stats.v1')));

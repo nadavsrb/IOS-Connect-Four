@@ -125,3 +125,37 @@ export function findAnyWin(board) {
   }
   return null;
 }
+
+/** Can `player` pop the bottom disc of `col`? (their own disc sits at the bottom row) */
+export function canPop(board, col, player) {
+  return col >= 0 && col < COLS && board[ROWS - 1][col] === player;
+}
+
+/**
+ * Pop-Out move: remove `player`'s disc from the BOTTOM of `col`, shifting the
+ * whole column down by one (the top cell becomes empty). Mutates `board`.
+ * @returns {boolean} true if the pop was legal.
+ */
+export function popDisc(board, col, player) {
+  if (!canPop(board, col, player)) return false;
+  for (let r = ROWS - 1; r > 0; r--) board[r][col] = board[r - 1][col];
+  board[0][col] = EMPTY;
+  return true;
+}
+
+/**
+ * Return the four winning cells for `player` anywhere on the board, or null.
+ * A Pop-Out shifts a whole column, so a win can appear away from the moved cell —
+ * this scans every cell rather than a single landing spot.
+ * @returns {Array<[number,number]>|null}
+ */
+export function findWinFor(board, player) {
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (board[r][c] !== player) continue;
+      const win = checkWin(board, r, c);
+      if (win) return win;
+    }
+  }
+  return null;
+}

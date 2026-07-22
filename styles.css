@@ -359,8 +359,18 @@ body::before {
   background: linear-gradient(135deg, rgba(123, 92, 255, 0.55), rgba(61, 215, 255, 0.4));
   box-shadow: 0 4px 18px rgba(123, 92, 255, 0.35);
 }
+.segmented-2 { grid-template-columns: repeat(2, 1fr); }
 .segmented-4 { grid-template-columns: repeat(4, 1fr); }
-.timer-setup { margin-top: 12px; }
+.timer-setup,
+.variant-setup,
+.match-setup { margin-top: 12px; }
+.field-hint {
+  margin: 8px 2px 0;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+.field-hint:empty { display: none; }
 
 /* ---------------- Game ---------------- */
 
@@ -576,6 +586,45 @@ body::before {
 .game-controls .btn { flex: 1; text-align: center; }
 .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* Pop-Out toggle + armed board */
+#btn-poptoggle[hidden] { display: none; }
+#btn-poptoggle.armed {
+  color: #fff;
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  background: linear-gradient(135deg, rgba(123, 92, 255, 0.45), rgba(61, 215, 255, 0.3));
+  box-shadow: 0 4px 18px rgba(123, 92, 255, 0.3);
+}
+.board.pop-mode {
+  outline: 2px dashed var(--stroke-bright);
+  outline-offset: 4px;
+}
+
+/* Match-series pips */
+.series-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: -4px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+.series-line[hidden] { display: none; }
+.series-pips { display: inline-flex; gap: 6px; }
+#series-p2 { flex-direction: row-reverse; }
+.pip {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid var(--stroke-bright);
+  box-sizing: border-box;
+}
+.pip.filled {
+  border-color: transparent;
+  box-shadow: 0 0 8px 1px rgba(255, 255, 255, 0.15);
+}
+.series-label { font-weight: 700; letter-spacing: 0.3px; }
+
 /* ---------------- Result overlay ---------------- */
 
 .overlay {
@@ -664,6 +713,92 @@ body::before {
   height: 14px;
   border-radius: 2px;
   will-change: transform, opacity;
+}
+
+/* ---------------- Themes ---------------- */
+/* Neon is the default (:root above). Classic and Minimal override key vars +
+   a few components. Disc colours stay player-chosen in every theme. */
+
+/* Classic: deep-blue board, subdued glow */
+:root[data-theme="classic"] { --accent: #2b6fe6; }
+:root[data-theme="classic"] body::before {
+  background:
+    radial-gradient(60% 45% at 50% 0%, rgba(60, 120, 230, 0.28), transparent 60%),
+    linear-gradient(160deg, #0f1d3e, #0a1226);
+  animation: none;
+}
+:root[data-theme="classic"] .board {
+  background: linear-gradient(160deg, #2f6fe0, #1b4fb4);
+  border-color: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.5), inset 0 0 26px rgba(255, 255, 255, 0.08);
+}
+:root[data-theme="classic"] .socket {
+  background: radial-gradient(circle at 50% 42%, #0a1c40, #0c2146 72%);
+}
+:root[data-theme="classic"] .disc {
+  box-shadow:
+    inset 0 0 0 2px color-mix(in srgb, var(--disc) 55%, black),
+    inset 0 2px 3px rgba(255, 255, 255, 0.25),
+    inset 0 -3px 5px rgba(0, 0, 0, 0.35);
+}
+:root[data-theme="classic"] .brand-title,
+:root[data-theme="classic"] .brand-title span {
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+}
+
+/* Minimal: light, flat, soft */
+:root[data-theme="minimal"] {
+  --bg-0: #eef1f7;
+  --bg-1: #f7f9fc;
+  --text: #1b2038;
+  --text-dim: #5b6486;
+  --panel: rgba(24, 32, 66, 0.05);
+  --panel-strong: rgba(24, 32, 66, 0.08);
+  --stroke: rgba(24, 32, 66, 0.14);
+  --stroke-bright: rgba(24, 32, 66, 0.26);
+  --socket: #dbe1ee;
+  --accent: #2b6fe6;
+}
+:root[data-theme="minimal"] body::before {
+  background: linear-gradient(160deg, #f4f6fb, #e7ecf6);
+  filter: none;
+  animation: none;
+}
+:root[data-theme="minimal"] .board {
+  background: #e2e7f2;
+  border-color: rgba(24, 32, 66, 0.14);
+  box-shadow: 0 12px 30px rgba(30, 40, 80, 0.12), inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme="minimal"] .socket {
+  background: radial-gradient(circle at 50% 40%, #ffffff, #e9edf6 78%);
+  box-shadow: inset 0 2px 5px rgba(30, 40, 80, 0.18);
+}
+:root[data-theme="minimal"] .disc {
+  box-shadow:
+    inset 0 0 0 2px color-mix(in srgb, var(--disc) 45%, black),
+    inset 0 2px 3px rgba(255, 255, 255, 0.35),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.22);
+}
+:root[data-theme="minimal"] .disc::before {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--disc) 40%, black);
+}
+:root[data-theme="minimal"] .brand-title { color: #1b2038; text-shadow: none; }
+:root[data-theme="minimal"] .brand-title span { color: #2b6fe6; text-shadow: none; }
+:root[data-theme="minimal"] .btn-primary {
+  border-color: rgba(43, 111, 230, 0.5);
+  background: linear-gradient(135deg, rgba(43, 111, 230, 0.18), rgba(43, 111, 230, 0.1));
+  box-shadow: 0 6px 18px rgba(43, 111, 230, 0.18);
+}
+:root[data-theme="minimal"] .btn-secondary {
+  border-color: rgba(43, 111, 230, 0.4);
+  background: linear-gradient(135deg, rgba(43, 111, 230, 0.14), rgba(43, 111, 230, 0.08));
+  box-shadow: none;
+}
+:root[data-theme="minimal"] .seg[aria-pressed="true"] {
+  background: linear-gradient(135deg, rgba(43, 111, 230, 0.85), rgba(43, 111, 230, 0.65));
+  box-shadow: 0 4px 14px rgba(43, 111, 230, 0.3);
 }
 
 /* ---------------- Accessibility ---------------- */

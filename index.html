@@ -55,6 +55,9 @@
         <button id="btn-reset-stats" class="chip" title="Reset scoreboard">
           <span class="chip-icon">🗑️</span><span class="chip-label">Reset scores</span>
         </button>
+        <button id="btn-theme" class="chip" title="Change theme">
+          <span class="chip-icon">🎨</span><span class="chip-label">Neon</span>
+        </button>
       </div>
 
       <p class="install-hint">Tip: tap <strong>Share → Add to Home Screen</strong> to play like a real app.</p>
@@ -107,6 +110,24 @@
             <button class="seg" data-timer="60">60s</button>
           </div>
         </div>
+
+        <div id="variant-block" class="variant-setup">
+          <p class="field-label">Variant</p>
+          <div class="segmented segmented-2" id="variant-select" role="group" aria-label="Game variant">
+            <button class="seg" data-variant="classic">Classic</button>
+            <button class="seg" data-variant="popout">Pop-Out</button>
+          </div>
+          <p class="field-hint" id="variant-hint"></p>
+        </div>
+
+        <div id="match-block" class="match-setup">
+          <p class="field-label">Match length</p>
+          <div class="segmented" id="match-select" role="group" aria-label="Match length">
+            <button class="seg" data-match="1">Single</button>
+            <button class="seg" data-match="2">Best of 3</button>
+            <button class="seg" data-match="3">Best of 5</button>
+          </div>
+        </div>
       </div>
 
       <button id="btn-start" class="btn btn-primary btn-wide">Start Game</button>
@@ -140,12 +161,19 @@
         </div>
       </div>
 
+      <div class="series-line" id="series-line" hidden>
+        <span class="series-pips" id="series-p1"></span>
+        <span class="series-label" id="series-label">First to 2</span>
+        <span class="series-pips" id="series-p2"></span>
+      </div>
+
       <div class="board-wrap">
         <div id="board" class="board" role="grid" aria-label="Connect Four board"></div>
       </div>
 
       <div class="game-controls">
         <button id="btn-undo" class="btn btn-ghost">↶ Undo</button>
+        <button id="btn-poptoggle" class="btn btn-ghost" hidden aria-pressed="false">↥ Pop out</button>
         <button id="btn-newround" class="btn btn-ghost">New Round</button>
       </div>
 

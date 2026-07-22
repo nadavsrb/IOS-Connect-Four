@@ -9,8 +9,12 @@ import {
   ROWS,
   COLS,
   createBoard,
+  cloneBoard,
   dropDisc,
+  popDisc,
+  canPop,
   checkWin,
+  findWinFor,
   isFull,
   other,
 } from './engine.js';
@@ -20,12 +24,16 @@ const $ = (sel, root = document) => root.querySelector(sel);
 
 const PALETTE = [
   { name: 'Pink', value: '#ff3d7f' },
+  { name: 'Red', value: '#ff3b30' },
   { name: 'Cyan', value: '#3dd7ff' },
   { name: 'Purple', value: '#b26bff' },
   { name: 'Lime', value: '#7cff6b' },
   { name: 'Yellow', value: '#ffd23f' },
   { name: 'Orange', value: '#ff8f3d' },
 ];
+
+const THEMES = ['neon', 'classic', 'minimal'];
+const THEME_LABEL = { neon: 'Neon', classic: 'Classic', minimal: 'Minimal' };
 
 // ---------------------------------------------------------------- persistence
 
@@ -40,6 +48,9 @@ const DEFAULT_PREFS = {
   c2: '#3dd7ff',
   difficulty: 'medium',
   timerSeconds: 0, // 0 = off; two-player mode only
+  variant: 'classic', // 'classic' | 'popout'
+  matchTarget: 1, // rounds needed to win the match: 1 = single, 2 = best of 3, 3 = best of 5
+  theme: 'neon', // 'neon' | 'classic' | 'minimal'
   muted: false,
 };
 
@@ -150,16 +161,26 @@ const difficultyBlock = $('#difficulty-block');
 const diffSegs = Array.from(document.querySelectorAll('#difficulty .seg'));
 const timerBlock = $('#timer-block');
 const timerSegs = Array.from(document.querySelectorAll('#timer-select .seg'));
+const variantSegs = Array.from(document.querySelectorAll('#variant-select .seg'));
+const variantHint = $('#variant-hint');
+const matchSegs = Array.from(document.querySelectorAll('#match-select .seg'));
 const turnTimerEl = $('#turn-timer');
 const turnTimerBar = $('#turn-timerbar');
 const confettiLayer = $('#confetti');
 const soundChip = $('#btn-sound');
+const themeChip = $('#btn-theme');
+const popToggleBtn = $('#btn-poptoggle');
+const seriesLine = $('#series-line');
+const seriesP1 = $('#series-p1');
+const seriesP2 = $('#series-p2');
+const seriesLabel = $('#series-label');
 
 // ---------------------------------------------------------------- state
 
 const game = {
   mode: 'bot',
   difficulty: 'medium',
+  variant: 'classic',
   board: createBoard(),
   current: P1,
   startingPlayer: P1,
@@ -167,7 +188,11 @@ const game = {
   over: false,
   locked: false,
   history: [],
+  lastMove: null, // {row, col} of the most recent drop (null after a pop / reset)
+  popArmed: false, // pop-out: next tap pops instead of drops
   timerSeconds: 0,
+  matchTarget: 1, // rounds to win the match
+  series: { 1: 0, 2: 0 }, // round wins in the current match
   names: { 1: 'Player 1', 2: 'Player 2' },
   colors: { 1: '#ff3d7f', 2: '#3dd7ff' },
 };
@@ -176,6 +201,9 @@ let pendingMode = 'bot';
 const selectedColor = { 1: prefs.c1, 2: prefs.c2 };
 let selectedDifficulty = prefs.difficulty;
 let selectedTimer = prefs.timerSeconds;
+let selectedVariant = prefs.variant;
+let selectedMatch = prefs.matchTarget;
+let resultPrimaryAction = 'again'; // 'again' | 'next' | 'newmatch'
 
 // Turn-timer bookkeeping
 let timerInterval = null;
@@ -244,6 +272,18 @@ function refreshTimer() {
   timerSegs.forEach((s) => s.setAttribute('aria-pressed', String(Number(s.dataset.timer) === selectedTimer)));
 }
 
+function refreshVariant() {
+  variantSegs.forEach((s) => s.setAttribute('aria-pressed', String(s.dataset.variant === selectedVariant)));
+  variantHint.textContent =
+    selectedVariant === 'popout'
+      ? 'Pop-Out: on your turn you may drop, or pop one of your own bottom discs to slide a column down.'
+      : '';
+}
+
+function refreshMatch() {
+  matchSegs.forEach((s) => s.setAttribute('aria-pressed', String(Number(s.dataset.match) === selectedMatch)));
+}
+
 function openSetup(mode) {
   pendingMode = mode;
   // Difficulty is bot-only; the turn timer is two-player-only.
@@ -259,10 +299,14 @@ function openSetup(mode) {
   selectedColor[2] = prefs.c2 === prefs.c1 ? firstFreeColor(prefs.c1) : prefs.c2;
   selectedDifficulty = prefs.difficulty;
   selectedTimer = prefs.timerSeconds;
+  selectedVariant = prefs.variant;
+  selectedMatch = prefs.matchTarget;
 
   refreshSwatches();
   refreshDifficulty();
   refreshTimer();
+  refreshVariant();
+  refreshMatch();
   applySelectedColors();
   showScreen('screen-setup');
 }
@@ -283,6 +327,8 @@ function startFromSetup() {
   prefs.c2 = selectedColor[2];
   prefs.difficulty = selectedDifficulty;
   if (pendingMode === '2p') prefs.timerSeconds = selectedTimer;
+  prefs.variant = selectedVariant;
+  prefs.matchTarget = selectedMatch;
   savePrefs();
   startGame(pendingMode);
 }
@@ -337,7 +383,10 @@ function onceAnimation(disc, cb) {
 function startGame(mode) {
   game.mode = mode;
   game.difficulty = selectedDifficulty;
+  game.variant = selectedVariant;
   game.timerSeconds = mode === '2p' ? selectedTimer : 0; // timer is two-player only
+  game.matchTarget = selectedMatch;
+  game.series = { 1: 0, 2: 0 };
   game.startingPlayer = P1; // a brand-new match always starts with Player 1
   game.names[1] = name1.value.trim() || name1.placeholder;
   game.names[2] = name2.value.trim() || name2.placeholder;
@@ -359,9 +408,13 @@ function resetRoundState() {
   game.over = false;
   game.locked = false;
   game.history = [];
+  game.lastMove = null;
+  game.popArmed = false;
   buildBoard();
   updateTurnIndicator();
   updateUndoBtn();
+  updatePopControl();
+  renderSeries();
   closeOverlay();
   startTurnTimer();
   maybeBotMove(); // handles the case where the bot is the starting player this round
@@ -372,45 +425,92 @@ function restartRound() {
   resetRoundState();
 }
 
+function newMatch() {
+  game.series = { 1: 0, 2: 0 };
+  game.startingPlayer = P1;
+  resetRoundState();
+}
+
 function humanPlay(col) {
   if (!game.active || game.locked || game.over) return;
   if (game.mode === 'bot' && game.current === P2) return; // bot's turn
-  attemptDrop(col);
+  if (game.variant === 'popout' && game.popArmed) attemptPop(col);
+  else attemptDrop(col);
+}
+
+// Snapshot the board+turn before a move so undo works for both drops and pops.
+function pushSnapshot() {
+  game.history.push({ board: cloneBoard(game.board), current: game.current, last: game.lastMove });
+}
+
+// Hand the turn to the other player once a move has settled without ending the round.
+function passTurn() {
+  game.current = other(game.current);
+  game.popArmed = false;
+  updateTurnIndicator();
+  updatePopControl();
+  game.locked = false;
+  updateUndoBtn();
+  startTurnTimer();
+  maybeBotMove();
+}
+
+function rejectMove(col) {
+  shakeColumn(col);
+  sound.invalid();
+  haptic([15, 30, 15]);
 }
 
 function attemptDrop(col) {
   if (col == null) return;
-  const landing = dropDisc(game.board, col, game.current);
-  if (!landing) {
-    // Column is full — shake it and buzz instead of silently ignoring the tap.
-    shakeColumn(col);
-    sound.invalid();
-    haptic([15, 30, 15]);
-    return;
-  }
+  if (game.board[0][col] !== EMPTY) return rejectMove(col); // column full
   stopTurnTimer(); // the move was made in time
   game.locked = true;
   updateUndoBtn();
-  game.history.push({ row: landing.row, col: landing.col, player: game.current });
+  pushSnapshot();
 
+  const landing = dropDisc(game.board, col, game.current);
+  game.lastMove = { row: landing.row, col: landing.col };
   const disc = placeDisc(landing.row, landing.col, game.current);
-  markLastMove(disc);
+  markLastMoveEl(disc);
   sound.drop();
   haptic(12);
 
-  const win = checkWin(game.board, landing.row, landing.col);
-  const draw = !win && isFull(game.board);
+  const cells = checkWin(game.board, landing.row, landing.col);
+  const draw = !cells && isFull(game.board);
 
   onceAnimation(disc, () => {
-    if (win) return endGame(game.current, win);
+    if (cells) return endGame(game.current, cells);
     if (draw) return endGame('draw', null);
-    game.current = other(game.current);
-    updateTurnIndicator();
-    game.locked = false;
-    updateUndoBtn();
-    startTurnTimer();
-    maybeBotMove();
+    passTurn();
   });
+}
+
+// Pop-Out: remove one of your own bottom discs; the column slides down.
+function attemptPop(col) {
+  if (!canPop(game.board, col, game.current)) return rejectMove(col);
+  stopTurnTimer();
+  game.locked = true;
+  updateUndoBtn();
+  pushSnapshot();
+
+  popDisc(game.board, col, game.current);
+  game.lastMove = null;
+  renderBoardDiscs(); // the whole column shifted — repaint it
+  sound.drop();
+  haptic([10, 20]);
+
+  // A pop can complete four-in-a-row for either player, anywhere on the board.
+  const mine = findWinFor(game.board, game.current);
+  const theirs = findWinFor(game.board, other(game.current));
+
+  setTimeout(() => {
+    if (mine && theirs) return endGame('draw', null); // both lines at once → draw
+    if (mine) return endGame(game.current, mine);
+    if (theirs) return endGame(other(game.current), theirs);
+    if (isFull(game.board)) return endGame('draw', null);
+    passTurn();
+  }, 280);
 }
 
 function maybeBotMove() {
@@ -436,8 +536,10 @@ function endGame(winner, cells, reason) {
   game.over = true;
   game.active = false;
   game.locked = true;
+  game.popArmed = false;
   stopTurnTimer();
   updateUndoBtn();
+  updatePopControl();
 
   if (winner === 'draw') {
     stats.draws++;
@@ -445,17 +547,21 @@ function endGame(winner, cells, reason) {
     renderScores();
     sound.draw();
     haptic([20, 40, 20]);
-    setTimeout(() => showResult('draw', reason), 300);
-  } else {
-    stats[winner]++;
-    saveStats();
-    renderScores();
-    if (cells) highlightWin(cells); // timeout wins have no line to highlight
-    burstConfetti();
-    sound.win();
-    haptic([30, 30, 30, 30, 140]);
-    setTimeout(() => showResult(winner, reason), cells ? 850 : 450);
+    setTimeout(() => showResult('draw', reason, false), 300);
+    return;
   }
+
+  stats[winner]++;
+  game.series[winner] += 1;
+  const matchOver = game.series[winner] >= game.matchTarget;
+  saveStats();
+  renderScores();
+  renderSeries();
+  if (cells) highlightWin(cells); // timeout wins have no line to highlight
+  burstConfetti();
+  sound.win();
+  haptic([30, 30, 30, 30, 140]);
+  setTimeout(() => showResult(winner, reason, matchOver), cells ? 850 : 450);
 }
 
 function highlightWin(cells) {
@@ -467,16 +573,18 @@ function highlightWin(cells) {
 
 function undo() {
   if (game.locked || game.over || !game.active || game.history.length === 0) return;
+  // vs Bot, undo both the bot's reply and your move so it's your turn again.
   const plies = game.mode === 'bot' ? Math.min(2, game.history.length) : 1;
-  for (let i = 0; i < plies; i++) {
-    const m = game.history.pop();
-    game.board[m.row][m.col] = EMPTY;
-    const disc = cellAt(m.row, m.col).querySelector('.disc');
-    if (disc) disc.remove();
-    game.current = m.player; // that player is on the move again
-  }
-  refreshLastMove(); // move the marker back to the new most-recent disc
+  let snap = null;
+  for (let i = 0; i < plies && game.history.length; i++) snap = game.history.pop();
+  if (!snap) return;
+  game.board = cloneBoard(snap.board);
+  game.current = snap.current;
+  game.lastMove = snap.last;
+  game.popArmed = false;
+  renderBoardDiscs(); // repaint from the restored board (handles drops and pops)
   updateTurnIndicator();
+  updatePopControl();
   updateUndoBtn();
   startTurnTimer(); // restart this player's countdown
   sound.click();
@@ -519,22 +627,48 @@ function resultSub(winner) {
   return 'Four in a row! 🎉';
 }
 
-function showResult(winner, reason) {
+function showResult(winner, reason, matchOver) {
   const disc = $('#result-disc');
+  const series = game.matchTarget > 1;
+
   if (winner === 'draw') {
     disc.className = 'result-disc draw';
     disc.style.removeProperty('--disc');
     $('#result-title').textContent = "It's a draw!";
-    $('#result-sub').textContent = 'The board filled up — nobody connected four.';
+    $('#result-sub').textContent = series
+      ? `Round drawn — series stays ${game.series[1]}–${game.series[2]}.`
+      : 'The board filled up — nobody connected four.';
+    resultPrimaryAction = series ? 'next' : 'again';
   } else {
     disc.className = 'result-disc';
     disc.style.setProperty('--disc', colorFor(winner));
-    $('#result-title').textContent = `${game.names[winner]} wins!`;
-    $('#result-sub').textContent =
-      reason === 'timeout' ? `${game.names[other(winner)]} ran out of time ⏱` : resultSub(winner);
+    const name = game.names[winner];
+    if (series && matchOver) {
+      $('#result-title').textContent = `🏆 ${name} wins the match!`;
+      $('#result-sub').textContent = `Match won ${game.series[winner]}–${game.series[other(winner)]}.`;
+      resultPrimaryAction = 'newmatch';
+    } else if (series) {
+      $('#result-title').textContent = `${name} takes the round`;
+      $('#result-sub').textContent = `Series ${game.series[1]}–${game.series[2]} · first to ${game.matchTarget}.`;
+      resultPrimaryAction = 'next';
+    } else {
+      $('#result-title').textContent = `${name} wins!`;
+      $('#result-sub').textContent =
+        reason === 'timeout' ? `${game.names[other(winner)]} ran out of time ⏱` : resultSub(winner);
+      resultPrimaryAction = 'again';
+    }
   }
+
+  $('#btn-playagain').textContent =
+    resultPrimaryAction === 'newmatch' ? 'New Match' : resultPrimaryAction === 'next' ? 'Next Round' : 'Play Again';
+
   overlay.classList.add('is-open');
   overlay.setAttribute('aria-hidden', 'false');
+}
+
+function onResultPrimary() {
+  if (resultPrimaryAction === 'newmatch') newMatch();
+  else restartRound(); // 'next' keeps the series (alternating start); 'again' is a fresh single game
 }
 
 function closeOverlay() {
@@ -619,15 +753,32 @@ function onTimeout() {
 
 // ---------------------------------------------------------------- last-move marker
 
-function markLastMove(disc) {
+function markLastMoveEl(disc) {
   boardEl.querySelectorAll('.disc.last').forEach((d) => d.classList.remove('last'));
   if (disc) disc.classList.add('last');
 }
 
-function refreshLastMove() {
-  const top = game.history[game.history.length - 1];
-  const disc = top ? cellAt(top.row, top.col).querySelector('.disc') : null;
-  markLastMove(disc);
+function applyLastMoveMarker() {
+  boardEl.querySelectorAll('.disc.last').forEach((d) => d.classList.remove('last'));
+  if (!game.lastMove) return;
+  const d = cellAt(game.lastMove.row, game.lastMove.col).querySelector('.disc');
+  if (d) d.classList.add('last');
+}
+
+// Repaint every disc from game.board (no drop animation). Used after a pop and undo.
+function renderBoardDiscs() {
+  boardEl.querySelectorAll('.disc').forEach((d) => d.remove());
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const p = game.board[r][c];
+      if (p === EMPTY) continue;
+      const disc = document.createElement('div');
+      disc.className = 'disc';
+      disc.style.setProperty('--disc', colorFor(p));
+      cellAt(r, c).appendChild(disc);
+    }
+  }
+  applyLastMoveMarker();
 }
 
 // ---------------------------------------------------------------- confetti
@@ -696,6 +847,66 @@ function shakeColumn(col) {
   }
 }
 
+// ---------------------------------------------------------------- pop-out control
+
+function updatePopControl() {
+  if (!popToggleBtn) return;
+  const show = game.variant === 'popout' && game.active && !game.over;
+  popToggleBtn.hidden = !show;
+  popToggleBtn.setAttribute('aria-pressed', String(game.popArmed));
+  popToggleBtn.classList.toggle('armed', game.popArmed);
+  popToggleBtn.textContent = game.popArmed ? '↥ Popping' : '↥ Pop out';
+  boardEl.classList.toggle('pop-mode', show && game.popArmed);
+}
+
+function togglePop() {
+  if (game.variant !== 'popout' || !game.active || game.locked || game.over) return;
+  if (game.mode === 'bot' && game.current === P2) return;
+  game.popArmed = !game.popArmed;
+  updatePopControl();
+  sound.click();
+}
+
+// ---------------------------------------------------------------- match series
+
+function renderSeries() {
+  if (!seriesLine) return;
+  if (game.matchTarget <= 1) {
+    seriesLine.hidden = true;
+    return;
+  }
+  seriesLine.hidden = false;
+  seriesLabel.textContent = `First to ${game.matchTarget}`;
+  buildPips(seriesP1, game.series[1], colorFor(1));
+  buildPips(seriesP2, game.series[2], colorFor(2));
+}
+
+function buildPips(container, filled, color) {
+  container.innerHTML = '';
+  for (let i = 0; i < game.matchTarget; i++) {
+    const pip = document.createElement('span');
+    pip.className = 'pip' + (i < filled ? ' filled' : '');
+    if (i < filled) pip.style.background = color;
+    container.appendChild(pip);
+  }
+}
+
+// ---------------------------------------------------------------- theme
+
+function applyTheme(theme) {
+  const t = THEMES.includes(theme) ? theme : 'neon';
+  document.documentElement.setAttribute('data-theme', t);
+  if (themeChip) themeChip.querySelector('.chip-label').textContent = THEME_LABEL[t];
+}
+
+function cycleTheme() {
+  const idx = THEMES.indexOf(prefs.theme);
+  prefs.theme = THEMES[(idx + 1) % THEMES.length];
+  savePrefs();
+  applyTheme(prefs.theme);
+  sound.click();
+}
+
 // ---------------------------------------------------------------- sound toggle & stats reset
 
 function updateSoundChip() {
@@ -741,15 +952,18 @@ function wire() {
   buildSwatches(1, swatches1);
   buildSwatches(2, swatches2);
   updateSoundChip();
+  applyTheme(prefs.theme);
 
   $('#btn-mode-bot').addEventListener('click', () => openSetup('bot'));
   $('#btn-mode-2p').addEventListener('click', () => openSetup('2p'));
   $('#btn-start').addEventListener('click', startFromSetup);
   $('#btn-restart').addEventListener('click', restartRound);
   $('#btn-newround').addEventListener('click', restartRound);
-  $('#btn-playagain').addEventListener('click', restartRound);
+  $('#btn-playagain').addEventListener('click', onResultPrimary);
   $('#btn-undo').addEventListener('click', undo);
+  popToggleBtn.addEventListener('click', togglePop);
   soundChip.addEventListener('click', toggleSound);
+  themeChip.addEventListener('click', cycleTheme);
   $('#btn-reset-stats').addEventListener('click', resetStats);
 
   document.querySelectorAll('[data-nav="menu"]').forEach((el) => el.addEventListener('click', goMenu));
@@ -766,6 +980,22 @@ function wire() {
     seg.addEventListener('click', () => {
       selectedTimer = Number(seg.dataset.timer);
       refreshTimer();
+      sound.click();
+    });
+  });
+
+  variantSegs.forEach((seg) => {
+    seg.addEventListener('click', () => {
+      selectedVariant = seg.dataset.variant;
+      refreshVariant();
+      sound.click();
+    });
+  });
+
+  matchSegs.forEach((seg) => {
+    seg.addEventListener('click', () => {
+      selectedMatch = Number(seg.dataset.match);
+      refreshMatch();
       sound.click();
     });
   });

@@ -13,12 +13,18 @@ icon, works **offline**, and feels like a native app.
   solid centre strategy, **Hard** uses minimax with alpha-beta look-ahead and is
   genuinely tough to beat.
 - 👥 **Two Players** — pass-and-play on one phone.
-- 🎨 **Neon look** — animated gradient background, glowing discs, smooth drop physics,
-  and a pulsing highlight on the winning four.
+- 🏅 **Match series** — play a single game, **Best of 3**, or **Best of 5**, with series
+  pips and a match-winner celebration.
+- 🔄 **Pop-Out variant** — the official twist: on your turn you can drop, *or* pop one of
+  your own bottom discs to slide a whole column down (it can even hand your opponent the win!).
+- ⏱️ **Turn timer** (two-player) — optional 15 / 30 / 60s limit; the whole background slowly
+  washes red past the ⅔ mark, and running out loses the round.
+- 🎨 **Themes** — switch between **Neon**, **Classic** (blue board), and **Minimal** (light, flat).
 - 🏆 **Scoreboard** — win/draw tallies that persist between sessions.
 - 🔊 **Sound effects** — generated live with the Web Audio API (no audio files), with a mute toggle.
-- ✏️ **Custom names & disc colours** — pick from a neon palette before each match.
+- ✏️ **Custom names & disc colours** — pick from the palette before each match.
 - 📳 **Haptics** — vibration on drops and wins *(see the note below about iOS)*.
+- ↶ **Undo** and celebratory **confetti** on every win.
 - 📴 **Offline** — a service worker caches everything, so it plays with no connection.
 
 ## Play it on your iPhone
