@@ -181,6 +181,7 @@ let selectedTimer = prefs.timerSeconds;
 let timerInterval = null;
 let timerDeadline = 0;
 let lastTickSecond = -1;
+const DANGER_MAX = 0.8; // peak opacity of the red "time running out" background wash
 
 const colorFor = (player) => game.colors[player];
 
@@ -581,6 +582,7 @@ function stopTurnTimer() {
   turnTimerBar.hidden = true;
   turnTimerEl.setAttribute('aria-hidden', 'true');
   turnIndicator.classList.remove('urgent');
+  document.documentElement.style.setProperty('--danger', '0'); // clear the red wash
 }
 
 function tickTimer() {
@@ -588,6 +590,12 @@ function tickTimer() {
   const remaining = Math.ceil(remainingMs / 1000);
   turnTimerEl.textContent = formatClock(remaining);
   turnTimerBar.style.width = `${Math.max(0, Math.min(1, remainingMs / (game.timerSeconds * 1000))) * 100}%`;
+
+  // From 2/3 elapsed onward, slowly wash the whole background red — the closer
+  // to zero, the deeper the red (0 → DANGER_MAX opacity).
+  const elapsedFrac = 1 - remainingMs / (game.timerSeconds * 1000);
+  const danger = Math.max(0, Math.min(1, (elapsedFrac - 2 / 3) / (1 / 3)));
+  document.documentElement.style.setProperty('--danger', (danger * DANGER_MAX).toFixed(3));
 
   const urgent = remaining <= 5 && remainingMs > 0;
   turnIndicator.classList.toggle('urgent', urgent);

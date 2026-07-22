@@ -128,14 +128,22 @@ try {
   ok('timer is visible in two-player mode', !(await page.locator('#turn-timer').evaluate((el) => el.hidden)));
   const t1 = (await page.locator('#turn-timer').textContent()) || '';
   const toSec = (s) => { const [m, ss] = s.split(':').map(Number); return m * 60 + ss; };
+  const dangerNow = () => page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--danger')) || 0);
   await page.screenshot({ path: `${SHOTS}/06-timer.png` });
   await wait(2500);
   const t2 = (await page.locator('#turn-timer').textContent()) || '';
   ok('countdown decreases while running', toSec(t2) < toSec(t1));
-  // let the remaining ~12.5s expire (no move)
-  await wait(14000);
+  ok('background not red before 2/3 elapsed', (await dangerNow()) === 0);
+  // pass the 2/3 mark (~10s of 15s), staying before expiry (~2.5s left)
+  await wait(10000);
+  const dLate = await dangerNow();
+  ok('background reddens after 2/3 elapsed', dLate > 0);
+  await page.screenshot({ path: `${SHOTS}/06b-timer-red.png` });
+  // let the rest expire (no move)
+  await wait(4000);
   ok('timeout opens the result overlay', await page.locator('#overlay-result').evaluate((el) => el.classList.contains('is-open')));
   ok('timeout message shown', /ran out of time/.test((await page.locator('#result-sub').textContent()) || ''));
+  ok('red wash cleared once the game ended', (await dangerNow()) === 0);
   const statsAfter = JSON.parse(await page.evaluate(() => localStorage.getItem('c4.stats.v1')));
   ok('opponent (Player 2) awarded the timeout win', statsAfter['2'] === (statsBefore['2'] || 0) + 1);
   await page.screenshot({ path: `${SHOTS}/07-timeout.png` });

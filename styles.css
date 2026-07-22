@@ -36,7 +36,6 @@ html, body {
   margin: 0;
   padding: 0;
   height: 100%;
-  background: var(--bg-0);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -44,13 +43,18 @@ html, body {
   overscroll-behavior: none;
   touch-action: manipulation;
 }
+/* Base fill lives on <html> only (the canvas). If <body> also had an opaque
+   background it would paint over the fixed z-index:-1 layers (neon + danger
+   tint) below it, hiding them. */
+html { background: var(--bg-0); }
+body { background: transparent; }
 
 /* Animated neon background */
 body::before {
   content: "";
   position: fixed;
   inset: -20% -20% -20% -20%;
-  z-index: -1;
+  z-index: -2;
   background:
     radial-gradient(40% 40% at 18% 15%, rgba(255, 61, 127, 0.32), transparent 60%),
     radial-gradient(45% 45% at 85% 20%, rgba(61, 215, 255, 0.26), transparent 60%),
@@ -62,6 +66,19 @@ body::before {
 @keyframes bgdrift {
   0%   { transform: translate3d(0, 0, 0) scale(1); }
   100% { transform: translate3d(0, -3%, 0) scale(1.06); }
+}
+
+/* Red "time running out" wash — sits above the neon background, behind the UI.
+   Opacity is set live by the turn timer once 2/3 of the time has elapsed. */
+#danger-tint {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: var(--danger, 0); /* driven by the timer; visibility comes from opacity alone */
+  background:
+    radial-gradient(120% 120% at 50% 42%, #ff2038, #c8001c 62%, #8a0014 100%);
+  transition: opacity 0.4s linear;
 }
 
 /* ---------------- App shell / screens ---------------- */
