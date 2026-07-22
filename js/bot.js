@@ -1,10 +1,14 @@
-// Connect Four — computer opponent (pure logic, no DOM).
-// Three difficulty levels, all algorithmic (no ML):
+// Connect Four — computer opponent (pure logic, no DOM, no ML — all just search).
+// Four difficulty levels, every one algorithmic:
 //   easy   – grabs an immediate win, usually blocks, otherwise fairly random.
 //   medium – always wins/blocks when possible, avoids handing the opponent a win, plays the centre.
 //   hard   – minimax with alpha-beta pruning + a positional heuristic (genuinely tough).
+//   insane – the same minimax, searched deeper (near-unbeatable).
+// Also exposes winChance(): an engine estimate of each side's chance to win, used by the eval bar.
 
 import {
+  P1,
+  P2,
   COLS,
   ROWS,
   EMPTY,
@@ -20,6 +24,8 @@ import {
 const MOVE_ORDER = [3, 2, 4, 1, 5, 0, 6];
 const WIN_SCORE = 100000;
 const HARD_DEPTH = 6;
+const INSANE_DEPTH = 8;
+const EVAL_K = 50; // logistic scale mapping heuristic score → win probability
 
 function orderedMoves(board) {
   return MOVE_ORDER.filter((c) => board[0][c] === EMPTY);
@@ -177,7 +183,7 @@ function bestMinimaxMove(board, me, depth) {
  * Choose a column for `player` on `board`.
  * @param {number[][]} board
  * @param {number} player   P1 or P2
- * @param {'easy'|'medium'|'hard'} difficulty
+ * @param {'easy'|'medium'|'hard'|'insane'} difficulty
  * @returns {number|null} chosen column, or null if the board is full.
  */
 export function chooseMove(board, player, difficulty = 'medium') {
@@ -208,6 +214,28 @@ export function chooseMove(board, player, difficulty = 'medium') {
     return randomChoice(pool);
   }
 
-  // hard
-  return bestMinimaxMove(board, player, HARD_DEPTH);
+  // hard / insane — same minimax, deeper for insane
+  return bestMinimaxMove(board, player, difficulty === 'insane' ? INSANE_DEPTH : HARD_DEPTH);
+}
+
+/**
+ * Estimate each player's chance to win in the current position — a deterministic
+ * engine estimate (there's no exact solver), presented like a chess eval bar.
+ * Runs the same minimax from `playerToMove`'s perspective and maps the value to a
+ * probability via a logistic curve; forced wins/losses are pinned near 99/1.
+ * @returns {{1:number, 2:number}} integer percentages that sum to 100.
+ */
+export function winChance(board, playerToMove, depth = 6) {
+  if (legalMoves(board).length === 0) return { 1: 50, 2: 50 };
+  const opp = other(playerToMove);
+  const v = minimax(board, depth, -Infinity, Infinity, true, playerToMove, opp);
+
+  let pMover;
+  if (v >= WIN_SCORE) pMover = 0.99;
+  else if (v <= -WIN_SCORE) pMover = 0.01;
+  else pMover = 1 / (1 + Math.exp(-v / EVAL_K));
+
+  const p1 = playerToMove === P1 ? pMover : 1 - pMover;
+  const p1pct = Math.round(p1 * 100);
+  return { [P1]: p1pct, [P2]: 100 - p1pct };
 }

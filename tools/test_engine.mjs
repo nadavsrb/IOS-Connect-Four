@@ -16,7 +16,7 @@ import {
   legalMoves,
   isColumnFull,
 } from '../js/engine.js';
-import { chooseMove } from '../js/bot.js';
+import { chooseMove, winChance } from '../js/bot.js';
 
 let passed = 0;
 let failed = 0;
@@ -121,7 +121,7 @@ console.log('Engine: draw detection');
 }
 
 console.log('Bot: always returns a legal move (all difficulties)');
-for (const diff of ['easy', 'medium', 'hard']) {
+for (const diff of ['easy', 'medium', 'hard', 'insane']) {
   const b = createBoard();
   // Scatter a few discs.
   dropDisc(b, 3, P1); dropDisc(b, 3, P2); dropDisc(b, 4, P1);
@@ -130,7 +130,7 @@ for (const diff of ['easy', 'medium', 'hard']) {
 }
 
 console.log('Bot: takes an immediate win (all difficulties)');
-for (const diff of ['easy', 'medium', 'hard']) {
+for (const diff of ['easy', 'medium', 'hard', 'insane']) {
   // P2 has three in a row on the bottom (cols 0,1,2); winning move is col 3.
   const b = createBoard();
   dropDisc(b, 0, P2); dropDisc(b, 1, P2); dropDisc(b, 2, P2);
@@ -138,8 +138,8 @@ for (const diff of ['easy', 'medium', 'hard']) {
   ok(`${diff}: plays the winning column (3)`, move === 3);
 }
 
-console.log('Bot: medium & hard block an immediate loss');
-for (const diff of ['medium', 'hard']) {
+console.log('Bot: medium/hard/insane block an immediate loss');
+for (const diff of ['medium', 'hard', 'insane']) {
   // P1 threatens to win at col 3 (has 0,1,2). Bot P2 must block at col 3.
   const b = createBoard();
   dropDisc(b, 0, P1); dropDisc(b, 1, P1); dropDisc(b, 2, P1);
@@ -226,6 +226,26 @@ console.log('Engine: full-board draw rule (classic vs pop-out)');
   const noBottom = createBoard();
   for (let c = 0; c < COLS; c++) for (let r = 0; r < ROWS; r++) noBottom[r][c] = P2; // all P2
   ok('pop-out — no own bottom disc anywhere means no move', hasAnyMove(noBottom, P1, 'popout') === false);
+}
+
+console.log('Bot: winChance evaluation bar');
+{
+  const empty = winChance(createBoard(), P1);
+  ok('empty board is near even', Math.abs(empty[P1] - empty[P2]) <= 10);
+  ok('percentages sum to 100 (empty)', empty[P1] + empty[P2] === 100);
+
+  // P1 to move with an open three across the bottom → winning move available → ~99%.
+  const b = createBoard();
+  dropDisc(b, 0, P1);
+  dropDisc(b, 1, P1);
+  dropDisc(b, 2, P1);
+  const wc = winChance(b, P1);
+  ok('forced win → high % for that player', wc[P1] >= 90);
+  ok('percentages sum to 100 (forced win)', wc[P1] + wc[P2] === 100);
+
+  // Same position but it's P2 to move (must block) → P2 is not winning here.
+  const wc2 = winChance(b, P2);
+  ok('opponent to move against an open three is not favoured', wc2[P1] >= wc2[P2]);
 }
 
 console.log('');

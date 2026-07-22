@@ -18,7 +18,7 @@ import {
   hasAnyMove,
   other,
 } from './engine.js';
-import { chooseMove } from './bot.js';
+import { chooseMove, winChance } from './bot.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
@@ -170,10 +170,21 @@ const confettiLayer = $('#confetti');
 const soundChip = $('#btn-sound');
 const themeChip = $('#btn-theme');
 const popToggleBtn = $('#btn-poptoggle');
+const hintBtn = $('#btn-hint');
 const seriesLine = $('#series-line');
 const seriesP1 = $('#series-p1');
 const seriesP2 = $('#series-p2');
 const seriesLabel = $('#series-label');
+
+const evalP1 = $('#eval-p1');
+const evalP2 = $('#eval-p2');
+const evalLabel = $('#eval-label');
+
+const replayLastChip = $('#btn-replay-last');
+const replayBoardEl = $('#replay-board');
+const replayCaption = $('#replay-caption');
+const replayCounter = $('#replay-counter');
+const rpPlayBtn = $('#rp-play');
 
 // ---------------------------------------------------------------- state
 
@@ -188,6 +199,7 @@ const game = {
   over: false,
   locked: false,
   history: [],
+  moveLog: [], // {type:'drop'|'pop', col} in play order — recorded for replay
   lastMove: null, // {row, col} of the most recent drop (null after a pop / reset)
   popArmed: false, // pop-out: next tap pops instead of drops
   timerSeconds: 0,
@@ -204,6 +216,17 @@ let selectedTimer = prefs.timerSeconds;
 let selectedVariant = prefs.variant;
 let selectedMatch = prefs.matchTarget;
 let resultPrimaryAction = 'again'; // 'again' | 'next' | 'newmatch'
+
+// Most-recent finished game, for replay (persisted across reloads).
+const LASTGAME_KEY = 'c4.lastgame.v1';
+let lastGame = loadLastGame();
+function loadLastGame() {
+  try {
+    return JSON.parse(localStorage.getItem(LASTGAME_KEY)) || null;
+  } catch {
+    return null;
+  }
+}
 
 // Bumped whenever the round is reset/undone; pending async move callbacks compare
 // against it and bail out if the game moved on (prevents phantom moves).
@@ -360,18 +383,28 @@ function buildBoard() {
   }
 }
 
-const cellAt = (r, c) => boardEl.children[r * COLS + c];
+const cellIn = (bEl, r, c) => bEl.children[r * COLS + c];
+const cellAt = (r, c) => cellIn(boardEl, r, c);
 
-function placeDisc(r, c, player) {
-  const cell = cellAt(r, c);
+// Create a disc in cell (r,c) of board element `bEl`. If `drop`, animate it
+// falling from the top. Shared by the live game board and the replay board.
+function spawnDisc(bEl, r, c, color, { drop = false } = {}) {
+  const cell = cellIn(bEl, r, c);
   const disc = document.createElement('div');
-  disc.className = 'disc dropping';
-  disc.style.setProperty('--disc', colorFor(player));
-  const boardRect = boardEl.getBoundingClientRect();
-  const cellRect = cell.getBoundingClientRect();
-  disc.style.setProperty('--from', `${-(cellRect.top - boardRect.top)}px`);
+  disc.className = 'disc';
+  disc.style.setProperty('--disc', color);
+  if (drop) {
+    disc.classList.add('dropping');
+    const bRect = bEl.getBoundingClientRect();
+    const cRect = cell.getBoundingClientRect();
+    disc.style.setProperty('--from', `${-(cRect.top - bRect.top)}px`);
+  }
   cell.appendChild(disc);
   return disc;
+}
+
+function placeDisc(r, c, player) {
+  return spawnDisc(boardEl, r, c, colorFor(player), { drop: true });
 }
 
 function onceAnimation(disc, cb) {
@@ -417,12 +450,16 @@ function resetRoundState() {
   game.over = false;
   game.locked = false;
   game.history = [];
+  game.moveLog = [];
   game.lastMove = null;
   game.popArmed = false;
+  clearHint();
   buildBoard();
   updateTurnIndicator();
   updateUndoBtn();
+  updateHintBtn();
   updatePopControl();
+  updateEvalBar();
   renderSeries();
   closeOverlay();
   startTurnTimer();
@@ -458,8 +495,10 @@ function passTurn() {
   game.popArmed = false;
   updateTurnIndicator();
   updatePopControl();
+  updateEvalBar();
   game.locked = false;
   updateUndoBtn();
+  updateHintBtn();
   startTurnTimer();
   maybeBotMove();
 }
@@ -473,10 +512,12 @@ function rejectMove(col) {
 function attemptDrop(col) {
   if (col == null) return;
   if (game.board[0][col] !== EMPTY) return rejectMove(col); // column full
+  clearHint();
   stopTurnTimer(); // the move was made in time
   game.locked = true;
   updateUndoBtn();
   pushSnapshot();
+  game.moveLog.push({ type: 'drop', col });
 
   const gen = moveGen;
   const landing = dropDisc(game.board, col, game.current);
@@ -500,10 +541,12 @@ function attemptDrop(col) {
 // Pop-Out: remove one of your own bottom discs; the column slides down.
 function attemptPop(col) {
   if (!canPop(game.board, col, game.current)) return rejectMove(col);
+  clearHint();
   stopTurnTimer();
   game.locked = true;
   updateUndoBtn();
   pushSnapshot();
+  game.moveLog.push({ type: 'pop', col });
 
   const gen = moveGen;
   popDisc(game.board, col, game.current);
@@ -557,6 +600,9 @@ function endGame(winner, cells, reason) {
   stopTurnTimer();
   updateUndoBtn();
   updatePopControl();
+  updateHintBtn();
+  recordLastGame(winner, cells, reason);
+  setEvalFinal(winner);
 
   if (winner === 'draw') {
     stats.draws++;
@@ -593,9 +639,13 @@ function undo() {
   // vs Bot, undo both the bot's reply and your move so it's your turn again.
   const plies = game.mode === 'bot' ? Math.min(2, game.history.length) : 1;
   let snap = null;
-  for (let i = 0; i < plies && game.history.length; i++) snap = game.history.pop();
+  for (let i = 0; i < plies && game.history.length; i++) {
+    snap = game.history.pop();
+    game.moveLog.pop();
+  }
   if (!snap) return;
   moveGen++; // invalidate any in-flight callbacks
+  clearHint();
   game.board = cloneBoard(snap.board);
   game.current = snap.current;
   game.lastMove = snap.last;
@@ -604,6 +654,8 @@ function undo() {
   updateTurnIndicator();
   updatePopControl();
   updateUndoBtn();
+  updateHintBtn();
+  updateEvalBar();
   startTurnTimer(); // restart this player's countdown
   sound.click();
 }
@@ -698,10 +750,13 @@ function closeOverlay() {
 
 function goMenu() {
   stopTurnTimer();
+  stopReplayPlay();
+  clearHint();
   game.active = false;
   game.over = false;
   game.locked = false;
   closeOverlay();
+  updateReplayLastChip();
   showScreen('screen-menu');
 }
 
@@ -789,11 +844,7 @@ function renderBoardDiscs() {
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const p = game.board[r][c];
-      if (p === EMPTY) continue;
-      const disc = document.createElement('div');
-      disc.className = 'disc';
-      disc.style.setProperty('--disc', colorFor(p));
-      cellAt(r, c).appendChild(disc);
+      if (p !== EMPTY) spawnDisc(boardEl, r, c, colorFor(p));
     }
   }
   applyLastMoveMarker();
@@ -968,6 +1019,219 @@ function cycleTheme() {
   sound.click();
 }
 
+// ---------------------------------------------------------------- win-% eval bar
+
+function renderEval(pct) {
+  evalP1.style.width = `${pct[P1]}%`;
+  evalP2.style.width = `${pct[P2]}%`;
+  evalP1.style.background = colorFor(P1);
+  evalP2.style.background = colorFor(P2);
+  evalLabel.textContent = `${game.names[1]} ${pct[P1]}% · ${game.names[2]} ${pct[P2]}%`;
+}
+
+function updateEvalBar() {
+  if (!game.active || game.over) return; // final state is set by setEvalFinal()
+  renderEval(winChance(game.board, game.current, 6));
+}
+
+function setEvalFinal(winner) {
+  if (winner === 'draw') renderEval({ [P1]: 50, [P2]: 50 });
+  else renderEval({ [P1]: winner === P1 ? 100 : 0, [P2]: winner === P2 ? 100 : 0 });
+}
+
+// ---------------------------------------------------------------- best-move hint
+
+let hintTimer = null;
+
+function updateHintBtn() {
+  if (!hintBtn) return;
+  const humansTurn = !(game.mode === 'bot' && game.current === P2);
+  hintBtn.disabled = !(game.active && !game.over && !game.locked && humansTurn);
+}
+
+function clearHint() {
+  if (hintTimer) {
+    clearTimeout(hintTimer);
+    hintTimer = null;
+  }
+  boardEl.querySelectorAll('.cell.hint').forEach((c) => c.classList.remove('hint'));
+  boardEl.querySelectorAll('.disc.ghost').forEach((d) => d.remove());
+}
+
+function showHint() {
+  if (!game.active || game.over || game.locked) return;
+  if (game.mode === 'bot' && game.current === P2) return;
+  clearHint();
+  const col = chooseMove(cloneBoard(game.board), game.current, 'insane');
+  if (col == null) return;
+  let row = -1;
+  for (let r = ROWS - 1; r >= 0; r--) {
+    if (game.board[r][col] === EMPTY) { row = r; break; }
+  }
+  if (row < 0) return;
+  for (let r = 0; r < ROWS; r++) cellAt(r, col).classList.add('hint');
+  const ghost = spawnDisc(boardEl, row, col, colorFor(game.current));
+  ghost.classList.add('ghost');
+  sound.click();
+  hintTimer = setTimeout(clearHint, 2500);
+}
+
+// ---------------------------------------------------------------- replay
+
+const replay = { data: null, index: 0, playing: false, timer: null, boards: [] };
+
+function recordLastGame(winner, cells, reason) {
+  lastGame = {
+    moves: game.moveLog.slice(),
+    startingPlayer: game.startingPlayer,
+    variant: game.variant,
+    names: { 1: game.names[1], 2: game.names[2] },
+    colors: { 1: game.colors[1], 2: game.colors[2] },
+    winner, // 1 | 2 | 'draw'
+    winningCells: cells || null,
+    reason: reason || null,
+  };
+  try {
+    localStorage.setItem(LASTGAME_KEY, JSON.stringify(lastGame));
+  } catch {
+    /* storage unavailable — replay just won't survive a reload */
+  }
+}
+
+function updateReplayLastChip() {
+  if (replayLastChip) replayLastChip.hidden = !lastGame;
+}
+
+function buildReplayBoard() {
+  replayBoardEl.innerHTML = '';
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.dataset.row = String(r);
+      cell.dataset.col = String(c);
+      const socket = document.createElement('div');
+      socket.className = 'socket';
+      cell.appendChild(socket);
+      replayBoardEl.appendChild(cell);
+    }
+  }
+}
+
+// Board after each prefix of moves: boards[0] = empty, boards[k] = after k moves.
+function computeReplayBoards(data) {
+  const boards = [createBoard()];
+  const b = createBoard();
+  let cur = data.startingPlayer;
+  for (const mv of data.moves) {
+    if (mv.type === 'pop') popDisc(b, mv.col, cur);
+    else dropDisc(b, mv.col, cur);
+    boards.push(cloneBoard(b));
+    cur = other(cur);
+  }
+  return boards;
+}
+
+function replayCaptionText(d) {
+  const vs = `${d.names[1]} vs ${d.names[2]}`;
+  if (d.winner === 'draw') return `${vs} — Draw`;
+  const w = d.names[d.winner];
+  return d.reason === 'timeout' ? `${vs} — ${w} won on time` : `${vs} — ${w} won`;
+}
+
+function renderReplayBoard(index, animate) {
+  const board = replay.boards[index];
+  replayBoardEl.querySelectorAll('.disc').forEach((d) => d.remove());
+
+  // Which cell (if any) to animate as a fresh drop when stepping forward one move.
+  let animCell = null;
+  if (animate && index > 0) {
+    const mv = replay.data.moves[index - 1];
+    if (mv.type === 'drop') {
+      const prev = replay.boards[index - 1];
+      for (let r = 0; r < ROWS; r++) {
+        if (board[r][mv.col] !== EMPTY && prev[r][mv.col] === EMPTY) {
+          animCell = { r, c: mv.col };
+          break;
+        }
+      }
+    }
+  }
+
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const p = board[r][c];
+      if (p === EMPTY) continue;
+      const drop = !!(animCell && animCell.r === r && animCell.c === c);
+      spawnDisc(replayBoardEl, r, c, replay.data.colors[p], { drop });
+    }
+  }
+
+  if (index === replay.data.moves.length && replay.data.winningCells) {
+    replay.data.winningCells.forEach(([r, c]) => {
+      const d = cellIn(replayBoardEl, r, c).querySelector('.disc');
+      if (d) d.classList.add('win');
+    });
+  }
+  updateReplayControls();
+}
+
+function updateReplayControls() {
+  const n = replay.data ? replay.data.moves.length : 0;
+  replayCounter.textContent = `Move ${replay.index} / ${n}`;
+}
+
+function enterReplay(data) {
+  if (!data || !data.moves || data.moves.length === 0) return;
+  stopReplayPlay();
+  clearHint();
+  stopTurnTimer();
+  replay.data = data;
+  replay.boards = computeReplayBoards(data);
+  replay.index = 0;
+  buildReplayBoard();
+  replayCaption.textContent = replayCaptionText(data);
+  renderReplayBoard(0, false);
+  showScreen('screen-replay');
+}
+
+function replayStepTo(index, animateForwardOne) {
+  const n = replay.data.moves.length;
+  replay.index = Math.max(0, Math.min(n, index));
+  renderReplayBoard(replay.index, animateForwardOne);
+}
+
+function replayStep(delta) {
+  const target = replay.index + delta;
+  replayStepTo(target, delta === 1 && target === replay.index + 1);
+}
+
+function toggleReplayPlay() {
+  if (replay.playing) {
+    stopReplayPlay();
+    return;
+  }
+  if (replay.index >= replay.data.moves.length) replayStepTo(0, false); // restart from the top
+  replay.playing = true;
+  rpPlayBtn.textContent = '⏸ Pause';
+  replay.timer = setInterval(() => {
+    if (replay.index >= replay.data.moves.length) {
+      stopReplayPlay();
+      return;
+    }
+    replayStep(1);
+  }, 750);
+}
+
+function stopReplayPlay() {
+  replay.playing = false;
+  if (rpPlayBtn) rpPlayBtn.textContent = '▶ Play';
+  if (replay.timer) {
+    clearInterval(replay.timer);
+    replay.timer = null;
+  }
+}
+
 // ---------------------------------------------------------------- sound toggle & stats reset
 
 function updateSoundChip() {
@@ -1022,10 +1286,21 @@ function wire() {
   $('#btn-newround').addEventListener('click', restartRound);
   $('#btn-playagain').addEventListener('click', onResultPrimary);
   $('#btn-undo').addEventListener('click', undo);
+  hintBtn.addEventListener('click', showHint);
   popToggleBtn.addEventListener('click', togglePop);
   soundChip.addEventListener('click', toggleSound);
   themeChip.addEventListener('click', cycleTheme);
   $('#btn-reset-stats').addEventListener('click', resetStats);
+
+  // Replay entry points + controls
+  $('#btn-watch-replay').addEventListener('click', () => enterReplay(lastGame));
+  replayLastChip.addEventListener('click', () => enterReplay(lastGame));
+  $('#rp-start').addEventListener('click', () => { stopReplayPlay(); replayStepTo(0, false); });
+  $('#rp-prev').addEventListener('click', () => { stopReplayPlay(); replayStep(-1); });
+  rpPlayBtn.addEventListener('click', toggleReplayPlay);
+  $('#rp-next').addEventListener('click', () => { stopReplayPlay(); replayStep(1); });
+  $('#rp-end').addEventListener('click', () => { stopReplayPlay(); replayStepTo(replay.data.moves.length, false); });
+  updateReplayLastChip();
 
   document.querySelectorAll('[data-nav="menu"]').forEach((el) => el.addEventListener('click', goMenu));
 

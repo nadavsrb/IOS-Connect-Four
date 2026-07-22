@@ -587,9 +587,10 @@ body::before {
 
 .game-controls {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
 }
-.game-controls .btn { flex: 1; text-align: center; }
+.game-controls .btn { flex: 1 1 40%; text-align: center; white-space: nowrap; }
 .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* Pop-Out toggle + armed board */
@@ -630,6 +631,56 @@ body::before {
   box-shadow: 0 0 8px 1px rgba(255, 255, 255, 0.15);
 }
 .series-label { font-weight: 700; letter-spacing: 0.3px; }
+
+/* Win-% evaluation bar */
+.eval { display: flex; flex-direction: column; gap: 5px; margin-top: -4px; }
+.eval-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--stroke);
+  background: var(--socket);
+}
+.eval-seg {
+  height: 100%;
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 10px 0 currentColor;
+}
+#eval-p1 { border-radius: 999px 0 0 999px; }
+#eval-p2 { border-radius: 0 999px 999px 0; }
+.eval-label {
+  text-align: center;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Best-move hint: column highlight + ghost preview disc */
+.cell.hint .socket { box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.8), 0 0 0 2px var(--disc, var(--p1)); }
+.cell.hint { animation: hintpulse 1s ease-in-out infinite; }
+@keyframes hintpulse { 50% { filter: brightness(1.35); } }
+.disc.ghost {
+  opacity: 0.5;
+  box-shadow: 0 0 12px 2px var(--disc);
+  border: 2px dashed rgba(255, 255, 255, 0.85);
+  animation: ghostpulse 1s ease-in-out infinite;
+}
+.disc.ghost::before, .disc.ghost::after { display: none; }
+@keyframes ghostpulse { 50% { opacity: 0.28; } }
+
+/* Replay screen */
+.replay-caption { text-align: center; color: var(--text-dim); font-weight: 600; margin: 2px 0 0; }
+.replay-counter { text-align: center; color: var(--text-dim); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.replay-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+.replay-controls .icon-btn { font-size: 1.15rem; }
+.replay-play { min-width: 128px; text-align: center; }
 
 /* ---------------- Result overlay ---------------- */
 
@@ -816,4 +867,6 @@ body::before {
   .disc.win { animation: none; }
   .turn-indicator.thinking .turn-dot { animation: none; }
   .cell.shake { animation: none; }
+  .cell.hint { animation: none; }
+  .disc.ghost { animation: none; }
 }

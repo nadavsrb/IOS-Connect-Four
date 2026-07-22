@@ -214,6 +214,81 @@ try {
   ok('reset mid-animation keeps the correct turn', /Player 2/.test((await page.locator('#turn-text').textContent()) || ''));
   ok('reset mid-animation leaves an empty board', (await discCount()) === 0);
 
+  // --- Eval bar + best-move hint (2-player, classic) ---
+  await goToMenu();
+  await page.locator('#btn-mode-2p').click();
+  await wait(150);
+  await page.locator('#timer-select .seg[data-timer="0"]').click();
+  await page.locator('#variant-select .seg[data-variant="classic"]').click();
+  await page.locator('#match-select .seg[data-match="1"]').click();
+  await page.locator('#btn-start').click();
+  await wait(300);
+  const evalWidths = () =>
+    page.evaluate(() => [
+      parseFloat(document.getElementById('eval-p1').style.width) || 0,
+      parseFloat(document.getElementById('eval-p2').style.width) || 0,
+    ]);
+  const [w1a, w2a] = await evalWidths();
+  ok('eval bar renders and sums ~100', Math.abs(w1a + w2a - 100) <= 1);
+  await page.locator('#btn-hint').click();
+  await wait(150);
+  ok('best-move shows a hint highlight + ghost',
+    (await page.locator('#board .cell.hint').count()) > 0 && (await page.locator('#board .disc.ghost').count()) === 1);
+  await page.screenshot({ path: `${SHOTS}/10-hint.png` });
+  await dropAt(3);
+  ok('hint clears after a move', (await page.locator('#board .disc.ghost').count()) === 0);
+  const [w1b] = await evalWidths();
+  ok('eval split changes after a move', w1b !== w1a);
+
+  // --- Insane bot ---
+  await goToMenu();
+  await page.locator('#btn-mode-bot').click();
+  await wait(150);
+  ok('4 difficulty options incl. Insane', (await page.locator('#difficulty .seg').count()) === 4);
+  await page.locator('#difficulty .seg[data-diff="insane"]').click();
+  await page.locator('#btn-start').click();
+  await wait(300);
+  {
+    const before = await discCount();
+    await page.locator('#board .cell[data-col="3"]').first().click();
+    let moved = false;
+    for (let i = 0; i < 45; i++) {
+      await wait(150);
+      if ((await discCount()) >= before + 2) { moved = true; break; }
+    }
+    ok('insane bot responds with a move', moved);
+  }
+
+  // --- Replay last game ---
+  await goToMenu();
+  await page.locator('#btn-mode-2p').click();
+  await wait(150);
+  await page.locator('#timer-select .seg[data-timer="0"]').click();
+  await page.locator('#variant-select .seg[data-variant="classic"]').click();
+  await page.locator('#match-select .seg[data-match="1"]').click();
+  await page.locator('#btn-start').click();
+  await wait(300);
+  for (const c of [0, 0, 1, 1, 2, 2, 3]) await dropAt(c, 520); // P1 wins across the bottom
+  await wait(1200);
+  await page.locator('#btn-watch-replay').click();
+  await wait(300);
+  ok('replay screen is active', await page.locator('#screen-replay').evaluate((el) => el.classList.contains('is-active')));
+  const rpDiscs = () => page.locator('#replay-board .disc').count();
+  ok('replay starts on an empty board', (await rpDiscs()) === 0);
+  await page.locator('#rp-next').click();
+  await wait(250);
+  await page.locator('#rp-next').click();
+  await wait(250);
+  ok('stepping forward adds discs', (await rpDiscs()) === 2);
+  await page.locator('#rp-end').click();
+  await wait(300);
+  ok('jump to end shows the full game', (await rpDiscs()) === 7);
+  ok('winning four highlighted at the end', (await page.locator('#replay-board .disc.win').count()) === 4);
+  await page.screenshot({ path: `${SHOTS}/11-replay.png` });
+  await page.locator('#screen-replay [data-nav="menu"]').click();
+  await wait(200);
+  ok('“Replay last” chip appears after a game', !(await page.locator('#btn-replay-last').evaluate((el) => el.hidden)));
+
   // --- Turn timer: 15s countdown then timeout loss (slowest, do last) ---
   const statsBefore = JSON.parse(await page.evaluate(() => localStorage.getItem('c4.stats.v1')));
   await start2p(15);

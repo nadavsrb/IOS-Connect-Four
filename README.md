@@ -9,10 +9,14 @@ icon, works **offline**, and feels like a native app.
 
 ## Features
 
-- 🤖 **Vs Bot** — three difficulty levels. Easy blocks obvious threats, Medium plays
-  solid centre strategy, **Hard** uses minimax with alpha-beta look-ahead and is
-  genuinely tough to beat.
+- 🤖 **Vs Bot** — four difficulty levels (Easy / Medium / Hard / **Insane**). All purely
+  algorithmic minimax with alpha-beta look-ahead (no ML) — Insane searches deepest and is
+  near-unbeatable.
 - 👥 **Two Players** — pass-and-play on one phone.
+- 📊 **Win-% eval bar + best move** — a live bar shows each player's estimated chance to win
+  (an offline engine estimate, like a chess eval bar), and a **💡 Best move** button highlights
+  a strong column for whoever's turn it is.
+- 🔁 **Replay** — every finished game is saved so you can step, scrub, or auto-play through it.
 - 🏅 **Match series** — play a single game, **Best of 3**, or **Best of 5**, with series
   pips and a match-winner celebration.
 - 🔄 **Pop-Out variant** — the official twist: on your turn you can drop, *or* pop one of

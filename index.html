@@ -58,6 +58,9 @@
         <button id="btn-theme" class="chip" title="Change theme">
           <span class="chip-icon">🎨</span><span class="chip-label">Neon</span>
         </button>
+        <button id="btn-replay-last" class="chip" title="Replay your last game" hidden>
+          <span class="chip-icon">▶</span><span class="chip-label">Replay last</span>
+        </button>
       </div>
 
       <p class="install-hint">Tip: tap <strong>Share → Add to Home Screen</strong> to play like a real app.</p>
@@ -94,10 +97,11 @@
 
         <div id="difficulty-block" class="difficulty">
           <p class="field-label">Bot difficulty</p>
-          <div class="segmented" id="difficulty" role="group" aria-label="Bot difficulty">
+          <div class="segmented segmented-4" id="difficulty" role="group" aria-label="Bot difficulty">
             <button class="seg" data-diff="easy">Easy</button>
             <button class="seg" data-diff="medium">Medium</button>
             <button class="seg" data-diff="hard">Hard</button>
+            <button class="seg" data-diff="insane">Insane</button>
           </div>
         </div>
 
@@ -146,6 +150,14 @@
         <button id="btn-restart" class="icon-btn" aria-label="Restart round">⟳</button>
       </header>
 
+      <div class="eval" id="eval" aria-label="Win chance">
+        <div class="eval-bar" id="eval-bar">
+          <span class="eval-seg" id="eval-p1"></span>
+          <span class="eval-seg" id="eval-p2"></span>
+        </div>
+        <div class="eval-label" id="eval-label"></div>
+      </div>
+
       <div class="scoreboard" id="scoreboard">
         <div class="score score-1">
           <span class="score-name" id="score-name-1">Player 1</span>
@@ -173,6 +185,7 @@
 
       <div class="game-controls">
         <button id="btn-undo" class="btn btn-ghost">↶ Undo</button>
+        <button id="btn-hint" class="btn btn-ghost">💡 Best move</button>
         <button id="btn-poptoggle" class="btn btn-ghost" hidden aria-pressed="false">↥ Pop out</button>
         <button id="btn-newround" class="btn btn-ghost">New Round</button>
       </div>
@@ -188,9 +201,35 @@
           <p class="result-sub" id="result-sub"></p>
           <div class="result-actions">
             <button id="btn-playagain" class="btn btn-primary btn-wide">Play Again</button>
+            <button id="btn-watch-replay" class="btn btn-ghost btn-wide">▶ Watch replay</button>
             <button class="btn btn-ghost btn-wide" data-nav="menu">Main Menu</button>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- ================= REPLAY ================= -->
+    <section id="screen-replay" class="screen" aria-label="Replay">
+      <header class="topbar">
+        <button class="icon-btn" data-nav="menu" aria-label="Back to menu">‹</button>
+        <h2 class="topbar-title">Replay</h2>
+        <span class="icon-btn-spacer"></span>
+      </header>
+
+      <p class="replay-caption" id="replay-caption"></p>
+
+      <div class="board-wrap">
+        <div id="replay-board" class="board" role="grid" aria-label="Replay board"></div>
+      </div>
+
+      <div class="replay-counter" id="replay-counter">Move 0 / 0</div>
+
+      <div class="replay-controls">
+        <button id="rp-start" class="icon-btn" aria-label="Jump to start">⏮</button>
+        <button id="rp-prev" class="icon-btn" aria-label="Previous move">◀</button>
+        <button id="rp-play" class="btn btn-primary replay-play">▶ Play</button>
+        <button id="rp-next" class="icon-btn" aria-label="Next move">▶</button>
+        <button id="rp-end" class="icon-btn" aria-label="Jump to end">⏭</button>
       </div>
     </section>
 
