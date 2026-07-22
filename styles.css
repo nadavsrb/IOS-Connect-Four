@@ -59,10 +59,14 @@ html {
 }
 body { background: transparent; }
 
-/* Animated neon background. Sized to 100lvh (the *largest* possible visible height,
-   i.e. with the iOS toolbar retracted) and anchored at the top, so it always covers
-   the full screen — including the bottom — no matter the toolbar state. The drift is
-   scale-only so it can never uncover the bottom edge. */
+/* Animated neon background. Height is pinned to the real viewport height, which
+   JS keeps in --app-vh (= window.innerHeight, updated on load/resize). Pure CSS
+   viewport units (100lvh) can resolve too short on an iOS *standalone* PWA's
+   first paint, and because the drift is a composited transform: scale() it can
+   never correct a layout-height error — so the layer stayed short (a dark strip
+   at the bottom) until a screen change forced a reflow. The explicit px height
+   fixes it from the first paint. 100lvh/100vh remain as fallbacks before JS runs.
+   The drift is scale-only so it can never uncover the bottom edge. */
 body::before {
   content: "";
   position: fixed;
@@ -70,8 +74,9 @@ body::before {
   left: 0;
   right: 0;
   width: 100%;
-  height: 100vh; /* fallback */
-  height: 100lvh;
+  height: 100vh; /* oldest fallback */
+  height: 100lvh; /* modern fallback (before JS runs) */
+  height: var(--app-vh, 100lvh); /* JS pins to the true viewport height */
   z-index: -2;
   background:
     radial-gradient(52% 40% at 12% 0%, rgba(255, 61, 127, 0.40), transparent 62%),
@@ -95,8 +100,9 @@ body::before {
   left: 0;
   right: 0;
   width: 100%;
-  height: 100vh; /* fallback */
-  height: 100lvh;
+  height: 100vh; /* oldest fallback */
+  height: 100lvh; /* modern fallback (before JS runs) */
+  height: var(--app-vh, 100lvh); /* JS pins to the true viewport height */
   z-index: -1;
   pointer-events: none;
   opacity: var(--danger, 0); /* driven by the timer; visibility comes from opacity alone */

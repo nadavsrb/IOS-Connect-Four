@@ -1374,3 +1374,24 @@ function wire() {
 }
 
 wire();
+
+// Keep the fixed neon / danger background layers (styles.css: body::before,
+// #danger-tint) pinned to the true viewport height via --app-vh. On an iOS
+// standalone PWA the CSS viewport units (100lvh) can resolve too short on the
+// very first paint, and the layers' drift animation is a composited
+// transform: scale() that can't correct a layout-height error — so the neon
+// stayed short (a dark strip at the bottom) until a screen change forced a
+// reflow. An explicit pixel height, refreshed on every viewport change, fixes
+// it from the first frame. max(innerHeight, clientHeight) never sizes shorter
+// than the layout viewport, so browser-mode coverage isn't regressed.
+function syncViewportHeight() {
+  const h = Math.max(window.innerHeight || 0, document.documentElement.clientHeight || 0);
+  if (h) document.documentElement.style.setProperty('--app-vh', h + 'px');
+}
+syncViewportHeight();
+['resize', 'orientationchange', 'load', 'pageshow'].forEach((evt) =>
+  window.addEventListener(evt, syncViewportHeight),
+);
+// iOS can settle the standalone viewport a beat after launch — catch that too.
+requestAnimationFrame(syncViewportHeight);
+setTimeout(syncViewportHeight, 300);
