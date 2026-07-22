@@ -3,6 +3,7 @@
    ============================================================ */
 
 :root {
+  color-scheme: dark; /* browser overscroll/backdrop surfaces render dark, not white */
   --bg-0: #06060f;
   --bg-1: #0a0a1f;
   --panel: rgba(255, 255, 255, 0.05);
@@ -48,7 +49,11 @@ html, body {
    tint) below it, hiding them. A soft bottom-centre glow keeps the very bottom
    of the page from ever reading as a flat black "cut" (incl. overscroll). */
 html {
-  background:
+  /* Solid base colour first — it propagates to the whole canvas (incl. the iOS
+     toolbar-transition / overscroll gap), so the bottom never flashes white.
+     The gradients layer on top for the neon look. */
+  background-color: var(--bg-0);
+  background-image:
     radial-gradient(95% 55% at 50% 108%, rgba(123, 92, 255, 0.22), transparent 62%),
     linear-gradient(160deg, var(--bg-1), var(--bg-0));
 }
@@ -814,6 +819,7 @@ body::before {
 
 /* Minimal: light, flat, soft */
 :root[data-theme="minimal"] {
+  color-scheme: light; /* light theme → light browser surfaces */
   --bg-0: #eef1f7;
   --bg-1: #f7f9fc;
   --text: #1b2038;
