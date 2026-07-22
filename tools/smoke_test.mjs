@@ -65,19 +65,19 @@ try {
   await wait(300);
   await page.screenshot({ path: `${SHOTS}/01-menu.png` });
 
-  // --- Theme switcher ---
+  // --- Theme switcher --- (Classic is the default; cycle is neon → classic → minimal)
   const themeOf = () => page.evaluate(() => document.documentElement.getAttribute('data-theme'));
-  ok('default theme is neon', (await themeOf()) === 'neon');
-  await page.locator('#btn-theme').click();
-  ok('theme cycles to classic', (await themeOf()) === 'classic');
+  ok('default theme is classic', (await themeOf()) === 'classic');
   await page.screenshot({ path: `${SHOTS}/01b-classic.png` });
   await page.locator('#btn-theme').click();
   ok('theme cycles to minimal', (await themeOf()) === 'minimal');
   await page.screenshot({ path: `${SHOTS}/01c-minimal.png` });
+  await page.locator('#btn-theme').click();
+  ok('theme cycles to neon', (await themeOf()) === 'neon');
   await page.reload({ waitUntil: 'networkidle' });
-  ok('theme persists across reload', (await themeOf()) === 'minimal');
-  await page.locator('#btn-theme').click(); // back to neon for the remaining shots
-  ok('theme cycles back to neon', (await themeOf()) === 'neon');
+  ok('theme persists across reload', (await themeOf()) === 'neon');
+  await page.locator('#btn-theme').click(); // back to Classic (the default) for the remaining shots
+  ok('theme cycles back to classic', (await themeOf()) === 'classic');
 
   // --- Two-player: play a scripted P1 horizontal win (timer off) ---
   await page.locator('#btn-mode-2p').click();

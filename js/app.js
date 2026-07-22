@@ -50,7 +50,7 @@ const DEFAULT_PREFS = {
   timerSeconds: 0, // 0 = off; two-player mode only
   variant: 'classic', // 'classic' | 'popout'
   matchTarget: 1, // rounds needed to win the match: 1 = single, 2 = best of 3, 3 = best of 5
-  theme: 'neon', // 'neon' | 'classic' | 'minimal'
+  theme: 'classic', // 'neon' | 'classic' | 'minimal' — Classic (blue board) is the default
   muted: false,
 };
 
