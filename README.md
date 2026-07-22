@@ -41,6 +41,14 @@ The easiest way is to host it (free) with **GitHub Pages** and open the link in 
 
 > Once opened online at least once, it also works fully **offline**.
 
+### Updates
+The app uses a **network-first** service worker, so whenever you push a change and
+GitHub Pages redeploys, your phone picks it up automatically — it fetches the latest
+files when online and reloads once if a newer version took over. (It still works
+offline by falling back to the cached copy.) If you ever want to force a clean reload,
+go to **Settings → Safari → Advanced → Website Data**, delete the site's entry, and
+reopen it.
+
 ### Run it locally (on a computer, for testing)
 Because it uses ES modules and a service worker, open it through a small web server
 (not `file://`):

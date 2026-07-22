@@ -1,5 +1,11 @@
-// Offline caching so the game works with no connection once installed.
-const CACHE = 'connect-four-neon-v1';
+// Service worker: network-first so new deploys reach players automatically,
+// with a cache fallback so the game still works fully offline.
+//
+// Why network-first? A cache-first worker (the previous version) would keep
+// serving the snapshot it captured on the first visit, so pushes never showed
+// up. Now we always try the network first, refresh the cache with what we get,
+// and only fall back to the cache when offline.
+const CACHE = 'connect-four-neon-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -35,13 +41,21 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   event.respondWith(
-    caches.match(req).then((cached) => {
-      if (cached) return cached;
-      return fetch(req).catch(() => {
-        // Offline navigation fallback.
-        if (req.mode === 'navigate') return caches.match('./index.html');
-        return undefined;
-      });
-    })
+    fetch(req)
+      .then((res) => {
+        // Stash a fresh same-origin copy for offline use.
+        if (res && res.ok && res.type === 'basic') {
+          const copy = res.clone();
+          caches.open(CACHE).then((cache) => cache.put(req, copy));
+        }
+        return res;
+      })
+      .catch(() =>
+        caches.match(req).then((cached) => {
+          if (cached) return cached;
+          if (req.mode === 'navigate') return caches.match('./index.html');
+          return undefined;
+        })
+      )
   );
 });

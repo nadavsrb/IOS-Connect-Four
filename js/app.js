@@ -781,8 +781,20 @@ function wire() {
 
   // Register service worker for offline play (only over http/https).
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    // If the page is already controlled, a new worker taking over means an update
+    // was deployed — reload once so the fresh app is shown. (Skip on first install,
+    // which claims an uncontrolled page and needs no reload.)
+    const hadController = !!navigator.serviceWorker.controller;
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing || !hadController) return;
+      refreshing = true;
+      window.location.reload();
+    });
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('service-worker.js').catch(() => {});
+      // updateViaCache:'none' → the browser always byte-checks the SW script itself
+      // instead of serving it from the HTTP cache, so updates are detected promptly.
+      navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' }).catch(() => {});
     });
   }
 }
