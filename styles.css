@@ -59,30 +59,44 @@ html {
 }
 body { background: transparent; }
 
-/* Animated neon background */
+/* Animated neon background. Sized to 100lvh (the *largest* possible visible height,
+   i.e. with the iOS toolbar retracted) and anchored at the top, so it always covers
+   the full screen — including the bottom — no matter the toolbar state. The drift is
+   scale-only so it can never uncover the bottom edge. */
 body::before {
   content: "";
   position: fixed;
-  inset: -20% -20% -20% -20%;
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  height: 100vh; /* fallback */
+  height: 100lvh;
   z-index: -2;
   background:
-    radial-gradient(40% 40% at 18% 15%, rgba(255, 61, 127, 0.32), transparent 60%),
-    radial-gradient(45% 45% at 85% 20%, rgba(61, 215, 255, 0.26), transparent 60%),
-    radial-gradient(58% 46% at 50% 102%, rgba(123, 92, 255, 0.34), transparent 62%),
+    radial-gradient(40% 30% at 18% 12%, rgba(255, 61, 127, 0.32), transparent 60%),
+    radial-gradient(45% 32% at 85% 16%, rgba(61, 215, 255, 0.26), transparent 60%),
+    radial-gradient(70% 40% at 50% 100%, rgba(123, 92, 255, 0.34), transparent 65%),
     linear-gradient(160deg, var(--bg-1), var(--bg-0));
   filter: saturate(1.1);
+  transform-origin: center;
   animation: bgdrift 18s ease-in-out infinite alternate;
 }
 @keyframes bgdrift {
-  0%   { transform: translate3d(0, 0, 0) scale(1); }
-  100% { transform: translate3d(0, -3%, 0) scale(1.06); }
+  0%   { transform: scale(1.02); }
+  100% { transform: scale(1.08); }
 }
 
 /* Red "time running out" wash — sits above the neon background, behind the UI.
    Opacity is set live by the turn timer once 2/3 of the time has elapsed. */
 #danger-tint {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  height: 100vh; /* fallback */
+  height: 100lvh;
   z-index: -1;
   pointer-events: none;
   opacity: var(--danger, 0); /* driven by the timer; visibility comes from opacity alone */
