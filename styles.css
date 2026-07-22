@@ -74,9 +74,9 @@ body::before {
   height: 100lvh;
   z-index: -2;
   background:
-    radial-gradient(40% 30% at 18% 12%, rgba(255, 61, 127, 0.32), transparent 60%),
-    radial-gradient(45% 32% at 85% 16%, rgba(61, 215, 255, 0.26), transparent 60%),
-    radial-gradient(70% 40% at 50% 100%, rgba(123, 92, 255, 0.34), transparent 65%),
+    radial-gradient(52% 40% at 12% 0%, rgba(255, 61, 127, 0.40), transparent 62%),
+    radial-gradient(54% 42% at 90% 3%, rgba(61, 215, 255, 0.32), transparent 62%),
+    radial-gradient(85% 44% at 50% 100%, rgba(123, 92, 255, 0.42), transparent 68%),
     linear-gradient(160deg, var(--bg-1), var(--bg-0));
   filter: saturate(1.1);
   transform-origin: center;
