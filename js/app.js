@@ -620,18 +620,71 @@ function endGame(winner, cells, reason) {
   saveStats();
   renderScores();
   renderSeries();
-  if (cells) highlightWin(cells); // timeout wins have no line to highlight
+  if (cells) highlightWin(cells, winner); // timeout wins have no line to highlight
   burstConfetti();
   sound.win();
   haptic([30, 30, 30, 30, 140]);
   setTimeout(() => showResult(winner, reason, matchOver), cells ? 850 : 450);
 }
 
-function highlightWin(cells) {
-  cells.forEach(([r, c]) => {
+function highlightWin(cells, winner) {
+  cells.forEach(([r, c], i) => {
     const disc = cellAt(r, c).querySelector('.disc');
-    if (disc) disc.classList.add('win');
+    if (disc) {
+      disc.style.animationDelay = `${i * 0.09}s`; // ripple the pulse along the line
+      disc.classList.add('win');
+    }
   });
+  drawWinLine(cells, winner);
+}
+
+// Draw a glowing streak through the four winning discs. Endpoints are the centres
+// of the first and last winning cells (cells are stable, unlike the pulsing discs),
+// measured relative to the board so the SVG overlays it exactly.
+function drawWinLine(cells, winner) {
+  if (!cells || cells.length < 2 || !boardEl) return;
+  const bRect = boardEl.getBoundingClientRect();
+  const centreOf = (r, c) => {
+    const cr = cellAt(r, c).getBoundingClientRect();
+    return { x: cr.left - bRect.left + cr.width / 2, y: cr.top - bRect.top + cr.height / 2 };
+  };
+  const a = centreOf(cells[0][0], cells[0][1]);
+  const b = centreOf(cells[cells.length - 1][0], cells[cells.length - 1][1]);
+  const color = colorFor(winner) || '#ffffff';
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'win-line');
+  svg.style.setProperty('--win-color', color);
+  const makeLine = (width, stroke, cls) => {
+    const ln = document.createElementNS(NS, 'line');
+    ln.setAttribute('x1', a.x);
+    ln.setAttribute('y1', a.y);
+    ln.setAttribute('x2', b.x);
+    ln.setAttribute('y2', b.y);
+    ln.setAttribute('stroke', stroke);
+    ln.setAttribute('stroke-width', String(width));
+    ln.setAttribute('class', cls);
+    svg.appendChild(ln);
+    return ln;
+  };
+  const lines = [makeLine(14, color, 'win-line-glow'), makeLine(6, '#ffffff', 'win-line-core')];
+  boardEl.appendChild(svg);
+
+  const len = Math.hypot(b.x - a.x, b.y - a.y);
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  lines.forEach((ln) => {
+    ln.style.strokeDasharray = String(len);
+    ln.style.strokeDashoffset = reduce ? '0' : String(len);
+  });
+  if (!reduce) {
+    requestAnimationFrame(() => {
+      lines.forEach((ln) => {
+        ln.style.transition = 'stroke-dashoffset 0.5s ease';
+        ln.style.strokeDashoffset = '0';
+      });
+    });
+  }
 }
 
 function undo() {
@@ -898,12 +951,17 @@ function renderPopAnimated(col) {
 function burstConfetti() {
   if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   if (!confettiLayer) return;
+  spawnConfetti(130); // main burst
+  setTimeout(() => spawnConfetti(70), 300); // a second wave for a fuller celebration
+}
+
+function spawnConfetti(COUNT) {
+  if (!confettiLayer) return;
 
   const colors = [game.colors[1], game.colors[2], '#ffd23f', '#7cff6b', '#b26bff', '#3dd7ff'];
   const rect = confettiLayer.getBoundingClientRect();
   const width = rect.width || 360;
   const pieces = [];
-  const COUNT = 90;
 
   for (let i = 0; i < COUNT; i++) {
     const el = document.createElement('div');
@@ -1271,6 +1329,59 @@ function setHoverCol(col) {
   for (let r = 0; r < ROWS; r++) cellAt(r, col).classList.add('col-hover');
 }
 
+// ---------------------------------------------------------------- aim preview
+// While you point at / press a column, show a translucent "ghost" disc in the
+// hole where your piece would land, plus a column highlight, so you can aim
+// before committing. Works for both touch (press-drag-release) and mouse (hover
+// then click). The actual drop happens on pointer release via humanPlay().
+
+const aimState = { pointerId: null };
+
+// Lowest empty row in a column, or -1 if the column is full.
+function landingRow(col) {
+  for (let r = ROWS - 1; r >= 0; r--) if (game.board[r][col] === 0) return r;
+  return -1;
+}
+
+// Can the human commit a move right now (drop or, in armed Pop-Out, a pop)?
+function canPlay() {
+  if (!game.active || game.locked || game.over) return false;
+  if (game.mode === 'bot' && game.current === P2) return false; // not the human's turn
+  return true;
+}
+
+// Should the landing-hole ghost show? Only for a real drop — not while armed to
+// pop (a pop removes a bottom disc, so a "landing" preview would be misleading).
+function canAim() {
+  return canPlay() && !(game.variant === 'popout' && game.popArmed);
+}
+
+// Map viewport coordinates to a board column (works under pointer capture).
+function colFromPoint(x, y) {
+  const el = document.elementFromPoint(x, y);
+  const cell = el && el.closest ? el.closest('.cell') : null;
+  if (!cell || !boardEl.contains(cell)) return null;
+  return Number(cell.dataset.col);
+}
+
+function renderAim(col) {
+  boardEl.querySelectorAll('.disc.aim').forEach((d) => d.remove());
+  setHoverCol(col);
+  if (col == null || !canAim()) return;
+  const r = landingRow(col);
+  if (r < 0) return; // full column — the highlight still shows, but there's no landing hole
+  const ghost = document.createElement('div');
+  ghost.className = 'disc aim';
+  ghost.style.setProperty('--disc', colorFor(game.current));
+  cellAt(r, col).appendChild(ghost);
+}
+
+function clearAim() {
+  boardEl.querySelectorAll('.disc.aim').forEach((d) => d.remove());
+  setHoverCol(null);
+  aimState.pointerId = null;
+}
+
 // ---------------------------------------------------------------- wiring
 
 function wire() {
@@ -1336,20 +1447,47 @@ function wire() {
     });
   });
 
-  boardEl.addEventListener('click', (e) => {
+  // Unified board input: aim preview + drop-on-release. Covers touch (press →
+  // drag across columns → lift to drop) and mouse (hover to preview → click).
+  const hoverCapable = window.matchMedia('(hover: hover)').matches;
+  boardEl.classList.add('col-hint'); // enables the column-highlight socket style
+
+  boardEl.addEventListener('pointerdown', (e) => {
+    if (!canPlay()) return;
     const cell = e.target.closest('.cell');
     if (!cell) return;
-    humanPlay(Number(cell.dataset.col));
+    aimState.pointerId = e.pointerId;
+    try { boardEl.setPointerCapture(e.pointerId); } catch { /* not fatal */ }
+    renderAim(Number(cell.dataset.col));
+    e.preventDefault();
   });
 
-  if (window.matchMedia('(hover: hover)').matches) {
-    boardEl.classList.add('col-hint');
-    boardEl.addEventListener('pointermove', (e) => {
-      const cell = e.target.closest('.cell');
-      setHoverCol(cell ? Number(cell.dataset.col) : null);
-    });
-    boardEl.addEventListener('pointerleave', () => setHoverCol(null));
-  }
+  boardEl.addEventListener('pointermove', (e) => {
+    if (aimState.pointerId === e.pointerId) {
+      renderAim(colFromPoint(e.clientX, e.clientY)); // aiming: follow the pointer
+      e.preventDefault();
+    } else if (aimState.pointerId == null && hoverCapable) {
+      const cell = e.target.closest('.cell'); // plain mouse hover: preview the column
+      renderAim(cell ? Number(cell.dataset.col) : null);
+    }
+  });
+
+  boardEl.addEventListener('pointerup', (e) => {
+    if (aimState.pointerId !== e.pointerId) return;
+    const col = colFromPoint(e.clientX, e.clientY);
+    try { boardEl.releasePointerCapture(e.pointerId); } catch { /* not fatal */ }
+    aimState.pointerId = null;
+    boardEl.querySelectorAll('.disc.aim').forEach((d) => d.remove()); // let the real disc drop cleanly
+    if (col != null) humanPlay(col);
+    if (!hoverCapable) setHoverCol(null);
+  });
+
+  boardEl.addEventListener('pointercancel', (e) => {
+    if (aimState.pointerId === e.pointerId) clearAim();
+  });
+  boardEl.addEventListener('pointerleave', () => {
+    if (aimState.pointerId == null) clearAim(); // drop the hover preview when the cursor leaves
+  });
 
   window.addEventListener('pointerdown', () => sound.unlock(), { once: true });
 

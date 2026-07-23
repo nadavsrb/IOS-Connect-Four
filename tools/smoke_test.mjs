@@ -92,7 +92,19 @@ try {
   ok('game board has 42 cells', (await page.locator('#board .cell').count()) === 42);
 
   // Bottom-row plan: P1 -> 0,1,2,3 ; P2 -> 0,1,2 (stacked above)
-  await dropAt(0); // P1
+  // First P1 move via the aim preview: press-and-hold shows a ghost in the landing
+  // hole, releasing drops the disc.
+  {
+    const cell0 = await page.locator('#board .cell[data-col="0"]').first().boundingBox();
+    await page.mouse.move(cell0.x + cell0.width / 2, cell0.y + cell0.height / 2);
+    await page.mouse.down();
+    await wait(140);
+    ok('aim preview ghost appears while pressing a column', (await page.locator('#board .disc.aim').count()) === 1);
+    await page.mouse.up();
+    await wait(560);
+    ok('releasing drops the disc and clears the ghost',
+      (await page.locator('#board .disc.aim').count()) === 0 && (await discCount()) === 1);
+  }
   ok('exactly one last-move marker after a move', (await page.locator('#board .disc.last').count()) === 1);
   await dropAt(0); // P2
   await dropAt(1); // P1
@@ -105,6 +117,7 @@ try {
   ok('confetti bursts on win', (await page.locator('#confetti .confetti-piece').count()) > 0);
   await wait(800);
   ok('four discs highlighted as the winning line', (await page.locator('#board .disc.win').count()) === 4);
+  ok('glowing win line drawn through the four discs', (await page.locator('#board svg.win-line line').count()) === 2);
   ok('result overlay opened', await page.locator('#overlay-result').evaluate((el) => el.classList.contains('is-open')));
   ok('result announces a winner', /wins!/.test((await page.locator('#result-title').textContent()) || ''));
   await page.screenshot({ path: `${SHOTS}/04-win.png` });

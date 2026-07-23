@@ -23,12 +23,16 @@ icon, works **offline**, and feels like a native app.
   your own bottom discs to slide a whole column down (it can even hand your opponent the win!).
 - ⏱️ **Turn timer** (two-player) — optional 15 / 30 / 60s limit; the whole background slowly
   washes red past the ⅔ mark, and running out loses the round.
-- 🎨 **Themes** — switch between **Neon**, **Classic** (blue board), and **Minimal** (light, flat).
+- 🎨 **Themes** — switch between **Classic** (glossy blue cabinet — the default), **Neon**, and
+  **Minimal** (light, flat). The board is drawn as a real moulded cabinet with drilled holes.
 - 🏆 **Scoreboard** — win/draw tallies that persist between sessions.
 - 🔊 **Sound effects** — generated live with the Web Audio API (no audio files), with a mute toggle.
 - ✏️ **Custom names & disc colours** — pick from the palette before each match.
 - 📳 **Haptics** — vibration on drops and wins *(see the note below about iOS)*.
-- ↶ **Undo** and celebratory **confetti** on every win.
+- 🎯 **Aim preview** — press (or hover) a column and a translucent disc shows exactly where your
+  piece will land before you commit.
+- ↶ **Undo**, a glowing **winning-line** animation through the four discs, and celebratory
+  **confetti** on every win.
 - 📴 **Offline** — a service worker caches everything, so it plays with no connection.
 
 ## Play it on your iPhone

@@ -504,18 +504,25 @@ body::before {
 }
 
 .board {
+  position: relative; /* anchors the aim-preview ghost and the win-line overlay */
   width: max(220px, min(92vw, 460px, calc((100dvh - 340px) * 1.1667)));
   aspect-ratio: 7 / 6;
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   grid-template-rows: repeat(6, 1fr);
   gap: clamp(4px, 1.4vw, 9px);
-  padding: clamp(6px, 1.8vw, 12px);
+  padding: clamp(8px, 2.2vw, 14px);
   border-radius: 22px;
   background: linear-gradient(160deg, rgba(123, 92, 255, 0.18), rgba(61, 215, 255, 0.10));
   border: 1px solid var(--stroke-bright);
+  /* Layered shadows give the panel real thickness: a ground shadow beneath, a
+     catch-light on the top edge, a bright inner bevel up top and a dark recess
+     at the bottom — so it reads as a solid board, not a flat card. */
   box-shadow:
-    0 20px 60px rgba(0, 0, 0, 0.5),
+    0 24px 60px rgba(0, 0, 0, 0.55),
+    0 2px 0 rgba(255, 255, 255, 0.10),
+    inset 0 2px 3px rgba(255, 255, 255, 0.18),
+    inset 0 -8px 16px rgba(0, 0, 0, 0.40),
     inset 0 0 30px rgba(123, 92, 255, 0.15);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -539,7 +546,13 @@ body::before {
   border-radius: 50%;
   background:
     radial-gradient(circle at 50% 42%, #050612, var(--socket) 70%);
-  box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.8), inset 0 -2px 4px rgba(255, 255, 255, 0.04);
+  /* A hole drilled into the panel: deep top shadow, a faint light catch at the
+     bottom rim, a crisp dark edge, and a thin highlight on the panel around it. */
+  box-shadow:
+    inset 0 5px 10px rgba(0, 0, 0, 0.85),
+    inset 0 -3px 5px rgba(255, 255, 255, 0.05),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.45),
+    0 1px 0 rgba(255, 255, 255, 0.08);
   overflow: hidden;
 }
 .board.col-hint .cell.col-hover .socket {
@@ -618,6 +631,39 @@ body::before {
   z-index: 2;
 }
 @keyframes winpulse { 50% { transform: scale(1.08); } }
+
+/* Aim preview: a translucent disc shown in the landing hole of the column you're
+   pointing at, so you can see exactly where your piece will drop before you lift. */
+.disc.aim {
+  opacity: 0.5;
+  pointer-events: none;
+  box-shadow:
+    0 0 14px 2px color-mix(in srgb, var(--disc) 60%, transparent),
+    inset 0 0 0 2px color-mix(in srgb, var(--disc) 55%, black);
+  animation: aimpulse 1.1s ease-in-out infinite;
+}
+.disc.aim::before, .disc.aim::after { opacity: 0.5; }
+@keyframes aimpulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.62; } }
+
+/* Winning line: a glowing streak drawn through the four winning discs. */
+.win-line {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 5;
+}
+.win-line-glow {
+  stroke-linecap: round;
+  opacity: 0.55;
+  filter: blur(2px) drop-shadow(0 0 8px var(--win-color, #fff));
+}
+.win-line-core {
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 4px var(--win-color, #fff));
+}
 
 .game-controls {
   display: flex;
@@ -819,12 +865,27 @@ body::before {
   animation: none;
 }
 :root[data-theme="classic"] .board {
-  background: linear-gradient(160deg, #2f6fe0, #1b4fb4);
-  border-color: rgba(255, 255, 255, 0.28);
-  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.5), inset 0 0 26px rgba(255, 255, 255, 0.08);
+  /* Glossy moulded-plastic blue, like a real Connect Four cabinet: a sheen along
+     the top, a solid blue body, a bright top rim and a deep shadowed base. */
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 24%),
+    linear-gradient(160deg, #2f7bf0, #164bb0);
+  border-color: rgba(255, 255, 255, 0.35);
+  box-shadow:
+    0 26px 60px rgba(6, 20, 50, 0.6),
+    0 3px 0 rgba(255, 255, 255, 0.22),
+    inset 0 3px 4px rgba(255, 255, 255, 0.35),
+    inset 0 -10px 22px rgba(6, 20, 60, 0.5);
+  backdrop-filter: none; /* solid plastic — no glass blur */
+  -webkit-backdrop-filter: none;
 }
 :root[data-theme="classic"] .socket {
-  background: radial-gradient(circle at 50% 42%, #0a1c40, #0c2146 72%);
+  background: radial-gradient(circle at 50% 38%, #071634, #0a1c40 72%);
+  box-shadow:
+    inset 0 6px 12px rgba(0, 0, 0, 0.9),
+    inset 0 -3px 5px rgba(120, 160, 255, 0.10),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.5),
+    0 1px 0 rgba(255, 255, 255, 0.18);
 }
 :root[data-theme="classic"] .disc {
   box-shadow:
@@ -904,4 +965,5 @@ body::before {
   .cell.shake { animation: none; }
   .cell.hint { animation: none; }
   .disc.ghost { animation: none; }
+  .disc.aim { animation: none; }
 }
