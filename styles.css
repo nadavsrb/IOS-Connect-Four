@@ -147,6 +147,34 @@ body::before {
 
 /* ---------------- Menu ---------------- */
 
+/* Animated hero on the menu: drifting disc tokens behind the title. */
+#screen-menu { position: relative; }
+#screen-menu > *:not(#menu-hero) { position: relative; z-index: 1; }
+#menu-hero { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+.hero-disc {
+  position: absolute;
+  width: var(--sz, 64px); height: var(--sz, 64px);
+  border-radius: 50%;
+  opacity: 0.22;
+  /* soft luminous orb (not a dark-rimmed token) so it glows behind the title */
+  background: radial-gradient(circle at 50% 42%,
+    color-mix(in srgb, var(--hc) 85%, white) 0%,
+    var(--hc) 52%,
+    color-mix(in srgb, var(--hc) 60%, transparent) 100%);
+  box-shadow: 0 0 34px 8px color-mix(in srgb, var(--hc) 55%, transparent);
+  animation: hero-drift var(--dur, 16s) ease-in-out infinite alternate;
+}
+@keyframes hero-drift {
+  from { transform: translate(0, 0) rotate(0deg); }
+  to   { transform: translate(var(--dx, 20px), var(--dy, -24px)) rotate(var(--dr, 18deg)); }
+}
+.brand-title { animation: brand-glow 4.5s ease-in-out infinite alternate; }
+@keyframes brand-glow {
+  from { filter: drop-shadow(0 0 4px rgba(123, 92, 255, 0.25)); }
+  to   { filter: drop-shadow(0 0 16px rgba(123, 92, 255, 0.55)); }
+}
+:root[data-theme="minimal"] .brand-title { animation: none; filter: none; }
+
 .brand {
   text-align: center;
   margin-top: 6vh;
@@ -878,6 +906,19 @@ body::before {
   transition: transform 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.2);
 }
 .overlay.is-open .result-card { transform: scale(1); }
+/* Celebratory entrance for the result contents (confetti fires separately). */
+.overlay.is-open .result-disc { animation: result-pop 0.6s cubic-bezier(0.2, 0.9, 0.3, 1.3) both; }
+.overlay.is-open .result-title { animation: result-rise 0.5s ease 0.1s both; }
+.overlay.is-open .result-sub { animation: result-rise 0.5s ease 0.18s both; }
+@keyframes result-pop {
+  0%   { transform: scale(0) rotate(-45deg); }
+  70%  { transform: scale(1.14) rotate(6deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+@keyframes result-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 .result-disc {
   --disc: var(--p1);
   position: relative;
@@ -1052,4 +1093,9 @@ body::before {
   .disc.ghost { animation: none; }
   .disc.aim { animation: none; }
   .board.impact { animation: none; }
+  .hero-disc { animation: none; }
+  .brand-title { animation: none; }
+  .overlay.is-open .result-disc,
+  .overlay.is-open .result-title,
+  .overlay.is-open .result-sub { animation: none; }
 }
