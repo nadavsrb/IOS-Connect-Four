@@ -120,19 +120,23 @@ const savePrefs = () => saveJSON(PREFS_KEY, prefs);
 const saveStats = () => saveJSON(STATS_KEY, stats);
 const saveHistory = () => saveJSON(HISTORY_KEY, history);
 
-// ---------------------------------------------------------------- sound (Web Audio)
+// ---------------------------------------------------------------- Web Audio
+
+// Shared audio context, created lazily on the first user gesture (browsers block
+// audio until then). Used by both the sound effects and the soundtrack.
+let _audioCtx = null;
+function audioCtx() {
+  if (!_audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    _audioCtx = new AC();
+  }
+  if (_audioCtx.state === 'suspended') _audioCtx.resume();
+  return _audioCtx;
+}
 
 const sound = (() => {
-  let ctx = null;
-  function ensure() {
-    if (!ctx) {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return null;
-      ctx = new AC();
-    }
-    if (ctx.state === 'suspended') ctx.resume();
-    return ctx;
-  }
+  const ensure = audioCtx;
   // A short enveloped oscillator; pass `f2` to glide the pitch (gives a "thock").
   function tone(freq, dur, type = 'sine', gain = 0.12, when = 0, f2 = null) {
     if (prefs.muted) return;
@@ -202,6 +206,105 @@ const sound = (() => {
     },
   };
 })();
+
+// ---------------------------------------------------------------- soundtrack
+// A chill, looping neon backing track built live with Web Audio (no files): a
+// soft pad + bass + arpeggio over a wistful minor progression. Scheduled a beat
+// ahead so it loops seamlessly.
+const music = (() => {
+  const BPM = 82;
+  const beat = 60 / BPM;
+  const stepDur = beat / 2; // eighth notes
+  const STEPS = 32; // 4 bars × 8 eighths
+  const midiToFreq = (m) => 440 * Math.pow(2, (m - 69) / 12);
+  const CHORDS = [
+    { root: 45, notes: [57, 60, 64] }, // Am
+    { root: 41, notes: [53, 57, 60] }, // F
+    { root: 48, notes: [60, 64, 67] }, // C
+    { root: 43, notes: [55, 59, 62] }, // G
+  ];
+  let master = null;
+  let playing = false;
+  let timer = null;
+  let step = 0;
+  let nextTime = 0;
+
+  function voice(freq, t, dur, type, gain, attack) {
+    const c = audioCtx();
+    if (!c || !master) return;
+    const osc = c.createOscillator();
+    const g = c.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g);
+    g.connect(master);
+    osc.start(t);
+    osc.stop(t + dur + 0.05);
+  }
+
+  function scheduleStep(s, t) {
+    const chord = CHORDS[Math.floor(s / 8) % CHORDS.length];
+    const inBar = s % 8;
+    if (inBar === 0) voice(midiToFreq(chord.root), t, beat * 1.9, 'triangle', 0.17, 0.01); // bass, beat 1
+    if (inBar === 4) voice(midiToFreq(chord.root), t, beat * 0.9, 'triangle', 0.11, 0.01); // bass, beat 3
+    if (inBar === 0) chord.notes.forEach((n) => voice(midiToFreq(n), t, beat * 3.8, 'sine', 0.045, 0.5)); // pad
+    voice(midiToFreq(chord.notes[inBar % chord.notes.length] + 12), t, stepDur * 0.9, 'triangle', 0.05, 0.005); // arp
+  }
+
+  function tick() {
+    const c = audioCtx();
+    if (!c) return;
+    while (nextTime < c.currentTime + 0.13) {
+      scheduleStep(step, nextTime);
+      nextTime += stepDur;
+      step = (step + 1) % STEPS;
+    }
+  }
+
+  return {
+    start() {
+      if (playing || prefs.muted) return;
+      const c = audioCtx();
+      if (!c) return;
+      master = c.createGain();
+      master.gain.setValueAtTime(0.0001, c.currentTime);
+      master.gain.exponentialRampToValueAtTime(0.7, c.currentTime + 1.6); // gentle fade-in
+      master.connect(c.destination);
+      playing = true;
+      step = 0;
+      nextTime = c.currentTime + 0.15;
+      timer = setInterval(tick, 30);
+    },
+    stop() {
+      if (!playing) return;
+      playing = false;
+      if (timer) { clearInterval(timer); timer = null; }
+      const c = audioCtx();
+      if (c && master) {
+        const m = master;
+        try {
+          m.gain.cancelScheduledValues(c.currentTime);
+          m.gain.setValueAtTime(Math.max(0.0001, m.gain.value), c.currentTime);
+          m.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.6); // fade-out
+        } catch { /* ignore */ }
+        setTimeout(() => { try { m.disconnect(); } catch { /* ignore */ } }, 800);
+      }
+      master = null;
+    },
+  };
+})();
+
+// The soundtrack only plays on the menu / setup screens, once audio is unlocked
+// (first user gesture) and sound isn't muted.
+let audioUnlocked = false;
+function updateMusic() {
+  const onMusicScreen = currentScreen === 'screen-menu' || currentScreen === 'screen-setup';
+  if (audioUnlocked && !prefs.muted && onMusicScreen) music.start();
+  else music.stop();
+}
 
 // ---------------------------------------------------------------- haptics
 
@@ -337,6 +440,7 @@ function showScreen(id, dir = null) {
     }
   });
   currentScreen = id;
+  updateMusic(); // soundtrack plays on menu/setup only
 }
 
 // ---------------------------------------------------------------- setup screen
@@ -362,7 +466,6 @@ function selectColor(seat, value) {
   refreshSwatches();
   applySelectedColors();
   sound.unlock();
-  sound.click();
 }
 
 function refreshSwatches() {
@@ -811,7 +914,6 @@ function undo() {
   updateHintBtn();
   updateEvalBar();
   startTurnTimer(); // restart this player's countdown
-  sound.click();
 }
 
 // ---------------------------------------------------------------- indicators / scores
@@ -1135,7 +1237,6 @@ function togglePop() {
   if (game.mode === 'bot' && game.current === P2) return;
   game.popArmed = !game.popArmed;
   updatePopControl();
-  sound.click();
 }
 
 // ---------------------------------------------------------------- match series
@@ -1175,7 +1276,6 @@ function cycleTheme() {
   prefs.theme = THEMES[(idx + 1) % THEMES.length];
   savePrefs();
   applyTheme(prefs.theme);
-  sound.click();
 }
 
 // ---------------------------------------------------------------- win-% eval bar
@@ -1211,7 +1311,6 @@ function toggleEval() {
   prefs.showEval = !prefs.showEval;
   savePrefs();
   applyEvalVisibility();
-  sound.click();
 }
 
 // ---------------------------------------------------------------- best-move hint
@@ -1244,7 +1343,6 @@ function showHint() {
   for (let r = 0; r < ROWS; r++) cellAt(r, col).classList.add('hint');
   const ghost = spawnDisc(boardEl, row, col, colorFor(game.current));
   ghost.classList.add('ghost');
-  sound.click();
   hintTimer = setTimeout(clearHint, 2500);
 }
 
@@ -1394,7 +1492,6 @@ function showReplayHint() {
   for (let r = 0; r < ROWS; r++) cellIn(replayBoardEl, r, col).classList.add('hint');
   const ghost = spawnDisc(replayBoardEl, row, col, d.colors[mover]);
   ghost.classList.add('ghost');
-  sound.click();
 }
 
 function updateReplayControls() {
@@ -1474,9 +1571,9 @@ function toggleSound() {
   prefs.muted = !prefs.muted;
   savePrefs();
   updateSoundChip();
+  updateMusic(); // mute stops the soundtrack; unmute resumes it on menu/setup
   if (!prefs.muted) {
     sound.unlock();
-    sound.click();
   }
 }
 
@@ -1641,7 +1738,6 @@ function wire() {
     seg.addEventListener('click', () => {
       selectedDifficulty = seg.dataset.diff;
       refreshDifficulty();
-      sound.click();
     });
   });
 
@@ -1649,7 +1745,6 @@ function wire() {
     seg.addEventListener('click', () => {
       selectedTimer = Number(seg.dataset.timer);
       refreshTimer();
-      sound.click();
     });
   });
 
@@ -1657,7 +1752,6 @@ function wire() {
     seg.addEventListener('click', () => {
       selectedVariant = seg.dataset.variant;
       refreshVariant();
-      sound.click();
     });
   });
 
@@ -1665,7 +1759,6 @@ function wire() {
     seg.addEventListener('click', () => {
       selectedMatch = Number(seg.dataset.match);
       refreshMatch();
-      sound.click();
     });
   });
 
@@ -1713,7 +1806,15 @@ function wire() {
     if (aimState.pointerId == null) clearAim(); // drop the hover preview when the cursor leaves
   });
 
-  window.addEventListener('pointerdown', () => sound.unlock(), { once: true });
+  // First user gesture unlocks Web Audio; start the soundtrack if we're on a
+  // music screen and not muted.
+  window.addEventListener('pointerdown', () => { sound.unlock(); audioUnlocked = true; updateMusic(); }, { once: true });
+
+  // A click sound on every button/chip/segment/swatch press (respects mute).
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest('button, .chip, .seg, .swatch');
+    if (el && !el.disabled) sound.click();
+  });
 
   // Register service worker for offline play (only over http/https).
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {

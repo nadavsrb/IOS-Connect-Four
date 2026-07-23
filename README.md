@@ -29,7 +29,9 @@ icon, works **offline**, and feels like a native app.
 - 🏆 **Scoreboard** — win/draw tallies that persist between sessions.
 - 📈 **Stats** — a dedicated screen with your total games, win rate vs the bot (overall and per
   difficulty), two-player tally, and current/best win streak.
-- 🔊 **Sound effects** — generated live with the Web Audio API (no audio files), with a mute toggle.
+- 🔊 **Sound & music** — a chill neon **soundtrack** on the menu/setup screens, live-generated
+  **sound effects**, and a **click on every button**, all synthesised with the Web Audio API
+  (no audio files, works offline) and silenced by the mute toggle.
 - ✏️ **Custom names & disc colours** — pick from the palette before each match.
 - 📳 **Haptics** — vibration on drops and wins *(see the note below about iOS)*.
 - 🎯 **Aim preview** — press (or hover) a column and a translucent disc shows exactly where your
