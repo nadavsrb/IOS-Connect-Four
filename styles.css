@@ -131,12 +131,18 @@ body::before {
   flex-direction: column;
   min-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 32px);
   gap: 18px;
-  animation: screen-in 0.32s ease both;
 }
 .screen.is-active { display: flex; }
-@keyframes screen-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: translateY(0); }
+/* Directional enter animations, added by showScreen(id, dir). */
+.screen.nav-fwd { animation: nav-fwd 0.3s cubic-bezier(0.4, 0, 0.2, 1) both; }
+.screen.nav-back { animation: nav-back 0.3s cubic-bezier(0.4, 0, 0.2, 1) both; }
+@keyframes nav-fwd {
+  from { opacity: 0; transform: translateX(26px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes nav-back {
+  from { opacity: 0; transform: translateX(-26px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
 /* ---------------- Menu ---------------- */
@@ -647,9 +653,16 @@ body::before {
 .disc.dropping { animation: drop 0.42s cubic-bezier(0.32, 0.12, 0.32, 1) both; z-index: 3; }
 @keyframes drop {
   0%   { transform: translateY(var(--from, -600%)); }
-  70%  { transform: translateY(0); }
-  82%  { transform: translateY(-7%); }
-  100% { transform: translateY(0); }
+  62%  { transform: translateY(0) scale(1, 1); }
+  74%  { transform: translateY(0) scale(1.07, 0.9); }  /* squash on impact */
+  86%  { transform: translateY(-7%) scale(0.98, 1.03); } /* rebound */
+  100% { transform: translateY(0) scale(1, 1); }
+}
+/* Brief board jolt when a disc seats (added/removed by bumpBoard). */
+.board.impact { animation: board-impact 0.2s ease; }
+@keyframes board-impact {
+  0%, 100% { transform: translateY(0); }
+  45% { transform: translateY(2px); }
 }
 /* Pop-Out: the popped disc drops out the bottom and shrinks away */
 .disc.popping-out { animation: pop-out 0.3s ease-in forwards; z-index: 4; pointer-events: none; }
@@ -1038,4 +1051,5 @@ body::before {
   .cell.hint { animation: none; }
   .disc.ghost { animation: none; }
   .disc.aim { animation: none; }
+  .board.impact { animation: none; }
 }

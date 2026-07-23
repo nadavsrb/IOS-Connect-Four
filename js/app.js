@@ -294,8 +294,17 @@ const colorFor = (player) => game.colors[player];
 // ---------------------------------------------------------------- screens
 
 let currentScreen = 'screen-menu';
-function showScreen(id) {
-  document.querySelectorAll('.screen').forEach((s) => s.classList.toggle('is-active', s.id === id));
+function showScreen(id, dir = null) {
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  document.querySelectorAll('.screen').forEach((s) => {
+    const active = s.id === id;
+    s.classList.toggle('is-active', active);
+    s.classList.remove('nav-fwd', 'nav-back');
+    if (active && dir && !reduce) {
+      void s.offsetWidth; // restart the enter animation even if the class was just cleared
+      s.classList.add(dir === 'back' ? 'nav-back' : 'nav-fwd');
+    }
+  });
   currentScreen = id;
 }
 
@@ -388,7 +397,7 @@ function openSetup(mode) {
   refreshVariant();
   refreshMatch();
   applySelectedColors();
-  showScreen('screen-setup');
+  showScreen('screen-setup', 'fwd');
 }
 
 function firstFreeColor(taken) {
@@ -487,7 +496,7 @@ function startGame(mode) {
 
   resetRoundState();
   renderScores();
-  showScreen('screen-game');
+  showScreen('screen-game', 'fwd');
 }
 
 function resetRoundState() {
@@ -581,10 +590,20 @@ function attemptDrop(col) {
 
   onceAnimation(disc, () => {
     if (gen !== moveGen || !game.active) return; // round was reset / left mid-animation
+    bumpBoard(); // a small jolt as the disc seats
     if (cells) return endGame(game.current, cells);
     if (draw) return endGame('draw', null);
     passTurn();
   });
+}
+
+// A brief board jolt when a disc lands, for tactile feedback.
+function bumpBoard() {
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  boardEl.classList.remove('impact');
+  void boardEl.offsetWidth; // restart the animation
+  boardEl.classList.add('impact');
+  setTimeout(() => boardEl.classList.remove('impact'), 220);
 }
 
 // Pop-Out: remove one of your own bottom discs; the column slides down.
@@ -861,7 +880,7 @@ function goMenu() {
   game.locked = false;
   closeOverlay();
   updateReplayLastChip();
-  showScreen('screen-menu');
+  showScreen('screen-menu', 'back');
 }
 
 // ---------------------------------------------------------------- turn timer
@@ -1364,7 +1383,7 @@ function enterReplay(data) {
   buildReplayBoard();
   replayCaption.textContent = replayCaptionText(data);
   renderReplayBoard(0, false);
-  showScreen('screen-replay');
+  showScreen('screen-replay', 'fwd');
 }
 
 function replayStepTo(index, animateForwardOne) {
@@ -1441,7 +1460,7 @@ function resetStats() {
 
 function openStats() {
   renderStats();
-  showScreen('screen-stats');
+  showScreen('screen-stats', 'fwd');
 }
 
 function renderStats() {
