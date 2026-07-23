@@ -51,6 +51,7 @@ const DEFAULT_PREFS = {
   variant: 'classic', // 'classic' | 'popout'
   matchTarget: 1, // rounds needed to win the match: 1 = single, 2 = best of 3, 3 = best of 5
   theme: 'classic', // 'neon' | 'classic' | 'minimal' — Classic (blue board) is the default
+  showEval: false, // win-% bar hidden by default; toggled on from the game controls
   muted: false,
 };
 
@@ -184,15 +185,21 @@ const seriesP1 = $('#series-p1');
 const seriesP2 = $('#series-p2');
 const seriesLabel = $('#series-label');
 
+const evalEl = $('#eval');
 const evalP1 = $('#eval-p1');
 const evalP2 = $('#eval-p2');
 const evalLabel = $('#eval-label');
+const evalToggleBtn = $('#btn-eval-toggle');
 
 const replayLastChip = $('#btn-replay-last');
 const replayBoardEl = $('#replay-board');
 const replayCaption = $('#replay-caption');
 const replayCounter = $('#replay-counter');
 const rpPlayBtn = $('#rp-play');
+const rpHintBtn = $('#rp-hint');
+const replayEvalP1 = $('#replay-eval-p1');
+const replayEvalP2 = $('#replay-eval-p2');
+const replayEvalLabel = $('#replay-eval-label');
 
 // ---------------------------------------------------------------- state
 
@@ -1096,13 +1103,29 @@ function renderEval(pct) {
 }
 
 function updateEvalBar() {
+  if (!prefs.showEval) return; // bar hidden — skip the (non-trivial) winChance compute
   if (!game.active || game.over) return; // final state is set by setEvalFinal()
   renderEval(winChance(game.board, game.current, 6));
 }
 
 function setEvalFinal(winner) {
+  if (!prefs.showEval) return;
   if (winner === 'draw') renderEval({ [P1]: 50, [P2]: 50 });
   else renderEval({ [P1]: winner === P1 ? 100 : 0, [P2]: winner === P2 ? 100 : 0 });
+}
+
+// Show/hide the in-game win-% bar per the saved preference.
+function applyEvalVisibility() {
+  if (evalEl) evalEl.classList.toggle('is-on', prefs.showEval);
+  if (evalToggleBtn) evalToggleBtn.setAttribute('aria-pressed', String(prefs.showEval));
+  if (prefs.showEval) updateEvalBar(); // populate immediately when turned on mid-game
+}
+
+function toggleEval() {
+  prefs.showEval = !prefs.showEval;
+  savePrefs();
+  applyEvalVisibility();
+  sound.click();
 }
 
 // ---------------------------------------------------------------- best-move hint
@@ -1208,6 +1231,7 @@ function replayCaptionText(d) {
 function renderReplayBoard(index, animate) {
   const board = replay.boards[index];
   replayBoardEl.querySelectorAll('.disc').forEach((d) => d.remove());
+  replayBoardEl.querySelectorAll('.cell.hint').forEach((c) => c.classList.remove('hint')); // clear any best-move hint
 
   // Which cell (if any) to animate as a fresh drop when stepping forward one move.
   let animCell = null;
@@ -1239,12 +1263,62 @@ function renderReplayBoard(index, animate) {
       if (d) d.classList.add('win');
     });
   }
+  renderReplayEval(index);
   updateReplayControls();
+}
+
+// Player to move at replay position `index` (moves alternate from the starter).
+function replayMoverAt(index) {
+  return index % 2 === 0 ? replay.data.startingPlayer : other(replay.data.startingPlayer);
+}
+
+// Win-% bar for the replayed position. At the final position it shows the actual
+// result; otherwise a turn-aware estimate for whoever is to move.
+function renderReplayEval(index) {
+  const d = replay.data;
+  let pct;
+  if (index >= d.moves.length) {
+    if (d.winner === 'draw') pct = { [P1]: 50, [P2]: 50 };
+    else pct = { [P1]: d.winner === P1 ? 100 : 0, [P2]: d.winner === P2 ? 100 : 0 };
+  } else {
+    pct = winChance(replay.boards[index], replayMoverAt(index), 6);
+  }
+  replayEvalP1.style.width = `${pct[P1]}%`;
+  replayEvalP2.style.width = `${pct[P2]}%`;
+  replayEvalP1.style.background = d.colors[1];
+  replayEvalP2.style.background = d.colors[2];
+  replayEvalLabel.textContent = `${d.names[1]} ${pct[P1]}% · ${d.names[2]} ${pct[P2]}%`;
+}
+
+function clearReplayHint() {
+  replayBoardEl.querySelectorAll('.cell.hint').forEach((c) => c.classList.remove('hint'));
+  replayBoardEl.querySelectorAll('.disc.ghost').forEach((g) => g.remove());
+}
+
+// Highlight the engine's best move for whoever is to move at the current paused
+// position. Persists until the user steps (navigation rebuilds the board).
+function showReplayHint() {
+  stopReplayPlay();
+  clearReplayHint();
+  const d = replay.data;
+  if (!d || replay.index >= d.moves.length) return; // game over — no move to suggest
+  const board = replay.boards[replay.index];
+  const mover = replayMoverAt(replay.index);
+  const col = chooseMove(cloneBoard(board), mover, 'insane');
+  if (col == null) return;
+  let row = -1;
+  for (let r = ROWS - 1; r >= 0; r--) if (board[r][col] === EMPTY) { row = r; break; }
+  if (row < 0) return;
+  for (let r = 0; r < ROWS; r++) cellIn(replayBoardEl, r, col).classList.add('hint');
+  const ghost = spawnDisc(replayBoardEl, row, col, d.colors[mover]);
+  ghost.classList.add('ghost');
+  sound.click();
 }
 
 function updateReplayControls() {
   const n = replay.data ? replay.data.moves.length : 0;
   replayCounter.textContent = `Move ${replay.index} / ${n}`;
+  if (rpHintBtn) rpHintBtn.disabled = replay.index >= n; // nothing to suggest at the final position
 }
 
 function enterReplay(data) {
@@ -1397,6 +1471,7 @@ function wire() {
   buildSwatches(2, swatches2);
   updateSoundChip();
   applyTheme(prefs.theme);
+  applyEvalVisibility();
 
   $('#btn-mode-bot').addEventListener('click', () => openSetup('bot'));
   $('#btn-mode-2p').addEventListener('click', () => openSetup('2p'));
@@ -1406,6 +1481,7 @@ function wire() {
   $('#btn-playagain').addEventListener('click', onResultPrimary);
   $('#btn-undo').addEventListener('click', undo);
   hintBtn.addEventListener('click', showHint);
+  if (evalToggleBtn) evalToggleBtn.addEventListener('click', toggleEval);
   popToggleBtn.addEventListener('click', togglePop);
   soundChip.addEventListener('click', toggleSound);
   themeChip.addEventListener('click', cycleTheme);
@@ -1419,6 +1495,7 @@ function wire() {
   rpPlayBtn.addEventListener('click', toggleReplayPlay);
   $('#rp-next').addEventListener('click', () => { stopReplayPlay(); replayStep(1); });
   $('#rp-end').addEventListener('click', () => { stopReplayPlay(); replayStepTo(replay.data.moves.length, false); });
+  if (rpHintBtn) rpHintBtn.addEventListener('click', showReplayHint);
   updateReplayLastChip();
 
   document.querySelectorAll('[data-nav="menu"]').forEach((el) => el.addEventListener('click', goMenu));

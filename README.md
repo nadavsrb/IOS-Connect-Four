@@ -13,10 +13,11 @@ icon, works **offline**, and feels like a native app.
   algorithmic minimax with alpha-beta look-ahead (no ML) — Insane searches deepest and is
   near-unbeatable.
 - 👥 **Two Players** — pass-and-play on one phone.
-- 📊 **Win-% eval bar + best move** — a live bar shows each player's estimated chance to win
-  (an offline engine estimate, like a chess eval bar), and a **💡 Best move** button highlights
-  a strong column for whoever's turn it is.
-- 🔁 **Replay** — every finished game is saved so you can step, scrub, or auto-play through it.
+- 📊 **Win-% eval bar + best move** — an optional bar (toggle **📊 Win odds** in-game) shows each
+  player's estimated chance to win — a turn-aware offline engine estimate, like a chess eval bar —
+  and a **💡 Best move** button highlights a strong column for whoever's turn it is.
+- 🔁 **Replay** — every finished game is saved so you can step, scrub, or auto-play through it, with
+  the **win-% bar** and a **💡 Best move** hint available at every paused position.
 - 🏅 **Match series** — play a single game, **Best of 3**, or **Best of 5**, with series
   pips and a match-winner celebration.
 - 🔄 **Pop-Out variant** — the official twist: on your turn you can drop, *or* pop one of

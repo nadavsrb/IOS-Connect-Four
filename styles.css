@@ -749,7 +749,10 @@ body::before {
 .series-label { font-weight: 700; letter-spacing: 0.3px; }
 
 /* Win-% evaluation bar */
-.eval { display: flex; flex-direction: column; gap: 5px; margin-top: -4px; }
+/* Hidden by default in-game; the "Win odds" toggle adds .is-on to reveal it.
+   The replay eval bar ships with .is-on so it's always shown there. */
+.eval { display: none; flex-direction: column; gap: 5px; margin-top: -4px; }
+.eval.is-on { display: flex; }
 .eval-bar {
   display: flex;
   height: 10px;
@@ -763,8 +766,8 @@ body::before {
   transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 0 10px 0 currentColor;
 }
-#eval-p1 { border-radius: 999px 0 0 999px; }
-#eval-p2 { border-radius: 0 999px 999px 0; }
+.eval-seg:first-child { border-radius: 999px 0 0 999px; }
+.eval-seg:last-child { border-radius: 0 999px 999px 0; }
 .eval-label {
   text-align: center;
   font-size: 0.74rem;
@@ -797,6 +800,9 @@ body::before {
 }
 .replay-controls .icon-btn { font-size: 1.15rem; }
 .replay-play { min-width: 128px; text-align: center; }
+.replay-actions { display: flex; justify-content: center; margin-top: 2px; }
+.replay-actions .btn { min-width: 160px; text-align: center; }
+.replay-actions .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ---------------- Result overlay ---------------- */
 

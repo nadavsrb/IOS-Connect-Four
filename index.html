@@ -184,6 +184,7 @@
       <div class="game-controls">
         <button id="btn-undo" class="btn btn-ghost">↶ Undo</button>
         <button id="btn-hint" class="btn btn-ghost">💡 Best move</button>
+        <button id="btn-eval-toggle" class="btn btn-ghost" aria-pressed="false">📊 Win odds</button>
         <button id="btn-poptoggle" class="btn btn-ghost" hidden aria-pressed="false">↥ Pop out</button>
         <button id="btn-newround" class="btn btn-ghost">New Round</button>
       </div>
@@ -216,6 +217,14 @@
 
       <p class="replay-caption" id="replay-caption"></p>
 
+      <div class="eval is-on" id="replay-eval" aria-label="Win chance">
+        <div class="eval-bar">
+          <span class="eval-seg" id="replay-eval-p1"></span>
+          <span class="eval-seg" id="replay-eval-p2"></span>
+        </div>
+        <div class="eval-label" id="replay-eval-label"></div>
+      </div>
+
       <div class="board-wrap">
         <div id="replay-board" class="board" role="grid" aria-label="Replay board"></div>
       </div>
@@ -228,6 +237,10 @@
         <button id="rp-play" class="btn btn-primary replay-play">▶ Play</button>
         <button id="rp-next" class="icon-btn" aria-label="Next move">▶</button>
         <button id="rp-end" class="icon-btn" aria-label="Jump to end">⏭</button>
+      </div>
+
+      <div class="replay-actions">
+        <button id="rp-hint" class="btn btn-ghost">💡 Best move</button>
       </div>
     </section>
 

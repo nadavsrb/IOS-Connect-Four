@@ -236,6 +236,11 @@ try {
   await page.locator('#match-select .seg[data-match="1"]').click();
   await page.locator('#btn-start').click();
   await wait(300);
+  // The win-% bar is hidden by default — reveal it with the toggle.
+  ok('eval bar hidden by default', !(await page.locator('#eval').evaluate((el) => el.classList.contains('is-on'))));
+  await page.locator('#btn-eval-toggle').click();
+  await wait(150);
+  ok('eval bar shown after toggle', await page.locator('#eval').evaluate((el) => el.classList.contains('is-on')));
   const evalWidths = () =>
     page.evaluate(() => [
       parseFloat(document.getElementById('eval-p1').style.width) || 0,
@@ -293,6 +298,20 @@ try {
   await page.locator('#rp-next').click();
   await wait(250);
   ok('stepping forward adds discs', (await rpDiscs()) === 2);
+  // Replay eval bar renders for the stepped position, and best-move highlights.
+  ok('replay eval bar renders and sums ~100', await page.evaluate(() => {
+    const w1 = parseFloat(document.getElementById('replay-eval-p1').style.width) || 0;
+    const w2 = parseFloat(document.getElementById('replay-eval-p2').style.width) || 0;
+    return w1 + w2 > 0 && Math.abs(w1 + w2 - 100) <= 1;
+  }));
+  await page.locator('#rp-hint').click();
+  await wait(150);
+  ok('replay best-move highlights a column on the replay board',
+    (await page.locator('#replay-board .cell.hint').count()) > 0 &&
+    (await page.locator('#replay-board .disc.ghost').count()) === 1);
+  await page.locator('#rp-next').click(); // navigating clears the hint
+  await wait(250);
+  ok('replay hint clears on navigation', (await page.locator('#replay-board .disc.ghost').count()) === 0);
   await page.locator('#rp-end').click();
   await wait(300);
   ok('jump to end shows the full game', (await rpDiscs()) === 7);
