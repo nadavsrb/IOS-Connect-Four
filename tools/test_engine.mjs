@@ -18,6 +18,7 @@ import {
   other,
 } from '../js/engine.js';
 import { chooseMove, winChance } from '../js/bot.js';
+import { solveBoard } from '../js/solver.js';
 import { emptyHistory, recordGame, summarize, winRate } from '../js/stats.js';
 
 let passed = 0;
@@ -355,6 +356,115 @@ console.log('Stats: history aggregation');
   const s = summarize(h);
   ok('current streak counts trailing vs-bot wins (2)', s.streakCurrent === 2);
   ok('empty history summarizes to zero games', summarize(emptyHistory()).total === 0);
+}
+
+// --- Exact bitboard solver ----------------------------------------------------
+
+const discCount = (b) => b.flat().filter((v) => v !== 0).length;
+
+// Random non-terminal position with roughly `plies` discs (null if it ended early).
+function randomPos(plies) {
+  const b = createBoard();
+  let cur = P1;
+  for (let i = 0; i < plies; i++) {
+    const moves = legalMoves(b);
+    if (!moves.length) break;
+    const l = dropDisc(b, moves[Math.floor(Math.random() * moves.length)], cur);
+    if (checkWin(b, l.row, l.col)) return null; // reached a win — not a live position
+    cur = other(cur);
+  }
+  return legalMoves(b).length ? b : null;
+}
+
+// Exact brute-force outcome for `player` to move: +1 win, 0 draw, -1 loss.
+// Plain negamax (no pruning table) — only used on shallow endgames in tests.
+function refOutcome(board, player) {
+  const moves = legalMoves(board);
+  if (moves.length === 0) return 0; // full board → draw
+  let best = -1;
+  for (const c of moves) {
+    const b = cloneBoard(board);
+    const l = dropDisc(b, c, player);
+    const val = checkWin(b, l.row, l.col) ? 1 : -refOutcome(b, other(player));
+    if (val > best) best = val;
+    if (best === 1) break; // can't beat an immediate forced win
+  }
+  return best;
+}
+
+console.log('Solver: exact endgame solving');
+{
+  // An open three across the bottom, side to move → fastest possible win. The
+  // solver's score for a win is (43 - movesToEnd)/2; winning on the very next
+  // disc (moves = 3) gives the maximal (43-3)/2 = 20.
+  const b = createBoard();
+  dropDisc(b, 0, P1); dropDisc(b, 1, P1); dropDisc(b, 2, P1);
+  const r = solveBoard(b, P1);
+  ok('immediate win scores maximally (+20)', r && r.score === 20);
+  // A double threat (three in the middle, both ends open) with the *other* player
+  // to move: they can't block both winning squares, so it's a proven loss. The
+  // root has no non-losing move, so this resolves instantly (no deep search).
+  const d = createBoard();
+  dropDisc(d, 1, P1); dropDisc(d, 2, P1); dropDisc(d, 3, P1);
+  const r2 = solveBoard(d, P2);
+  ok('unstoppable double threat is a proven loss (score < 0)', r2 && r2.score < 0);
+}
+{
+  // Cross-check the bitboard solver against brute-force negamax on shallow
+  // endgames (≤ 8 empty cells, where the reference is fast). Outcomes must agree.
+  let outcomeOK = true, checked = 0;
+  for (let i = 0; i < 8000 && checked < 60; i++) {
+    const b = randomPos(30 + Math.floor(Math.random() * 8));
+    if (!b || 42 - discCount(b) > 8) continue;
+    const m = Math.random() < 0.5 ? P1 : P2;
+    const r = solveBoard(b, m);
+    if (!r) continue;
+    if (Math.sign(r.score) !== refOutcome(b, m)) { outcomeOK = false; break; }
+    checked++;
+  }
+  ok('solver outcome matches brute force on shallow endgames', outcomeOK && checked >= 40);
+}
+{
+  // A one-move-from-full drawn board: fill the known no-win pattern minus the top
+  // of column 6 (a P2 cell), with P2 to place it. The only move completes the
+  // board with no line → a proven draw (score 0).
+  const b = createBoard();
+  const pattern = [
+    [P1, P1, P2, P2, P1, P1, P2],
+    [P1, P1, P2, P2, P1, P1, P2],
+    [P2, P2, P1, P1, P2, P2, P1],
+    [P2, P2, P1, P1, P2, P2, P1],
+    [P1, P1, P2, P2, P1, P1, P2],
+    [P1, P1, P2, P2, P1, P1, P2],
+  ];
+  for (let r = 0; r < 6; r++) for (let c = 0; c < 7; c++) b[r][c] = pattern[r][c];
+  b[0][6] = 0; // remove the top of column 6 (was P2) → 41 discs, one empty cell
+  const r = solveBoard(b, P2);
+  ok('forced draw solves to score 0', r && r.score === 0);
+  const wc = winChance(b, P2);
+  ok('forced draw reads as an even bar (50/50)', wc[P1] === 50 && wc[P2] === 50);
+}
+
+console.log('Bot: winChance is exact in the endgame');
+{
+  // Scan deep (≥ 22-disc) positions where the solver engages, and confirm the bar
+  // reflects the true result: proven win → mover rated high, proven loss → low.
+  let wonHi = null, lossLo = null, mismatch = false;
+  for (let i = 0; i < 30000 && !(wonHi !== null && lossLo !== null); i++) {
+    const b = randomPos(22 + Math.floor(Math.random() * 10));
+    if (!b || discCount(b) < 22) continue;
+    const m = Math.random() < 0.5 ? P1 : P2;
+    const r = solveBoard(b, m);
+    if (!r) continue;
+    const wc = winChance(b, m);
+    if (wc[P1] + wc[P2] !== 100) mismatch = true;
+    const moverPct = m === P1 ? wc[P1] : wc[P2];
+    if (r.score > 0 && wonHi === null) wonHi = moverPct;
+    else if (r.score < 0 && lossLo === null) lossLo = moverPct;
+  }
+  ok('endgame proven win → mover rated ≥ 82%', wonHi !== null && wonHi >= 82);
+  ok('endgame proven loss → mover rated ≤ 18%', lossLo !== null && lossLo <= 18);
+  ok('endgame bar still sums to 100', !mismatch);
 }
 
 console.log('');

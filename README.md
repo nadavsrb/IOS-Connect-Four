@@ -14,8 +14,11 @@ icon, works **offline**, and feels like a native app.
   near-unbeatable.
 - 👥 **Two Players** — pass-and-play on one phone.
 - 📊 **Win-% eval bar + best move** — an optional bar (toggle **📊 Win odds** in-game) shows each
-  player's estimated chance to win — a turn-aware offline engine estimate, like a chess eval bar —
-  and a **💡 Best move** button highlights a strong column for whoever's turn it is.
+  player's chance to win, like a chess eval bar. In the opening/midgame it's a turn-aware engine
+  estimate; from the game's second half on it becomes **exact**, solved by a bitboard solver
+  (negamax + alpha-beta + transposition table) — Connect Four is a solved game, so once the tree is
+  small enough it reports the true result under perfect play. A **💡 Best move** button highlights a
+  strong column for whoever's turn it is. All offline, no ML.
 - 🔁 **Replay** — every finished game is saved so you can step, scrub, or auto-play through it, with
   the **win-% bar** and a **💡 Best move** hint available at every paused position.
 - 🏅 **Match series** — play a single game, **Best of 3**, or **Best of 5**, with series
@@ -91,7 +94,9 @@ python3 -m http.server 8080
 index.html            App shell + all screens (menu / setup / game / result)
 styles.css            Neon theme, animations, iPhone safe-area handling
 js/engine.js          Pure Connect Four rules (drop, win/draw detection)
-js/bot.js             Bot opponent (easy/medium heuristics + hard minimax)
+js/bot.js             Bot opponent (easy/medium heuristics + hard minimax) + win-% estimate
+js/solver.js          Exact bitboard solver (negamax + alpha-beta + TT) — makes the eval bar exact
+js/stats.js           Pure stats aggregation (totals, per-difficulty, streaks)
 js/app.js             UI controller: rendering, sound, haptics, scoreboard, persistence
 manifest.webmanifest  PWA metadata (name, icons, standalone display)
 service-worker.js     Offline caching

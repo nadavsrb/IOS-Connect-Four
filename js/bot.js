@@ -19,6 +19,7 @@ import {
   isFull,
   other,
 } from './engine.js';
+import { solveBoard } from './solver.js';
 
 // Search columns from the centre outwards — better alpha-beta pruning and stronger play.
 const MOVE_ORDER = [3, 2, 4, 1, 5, 0, 6];
@@ -296,14 +297,45 @@ export function chooseMove(board, player, difficulty = 'medium') {
   return bestMinimaxMove(board, player, difficulty === 'insane' ? INSANE_DEPTH : HARD_DEPTH);
 }
 
+// Gate + node budget for the exact solver used by winChance. Once at least
+// SOLVE_MIN_DISCS discs are down (roughly the game's second half) the tree is
+// small enough that the bitboard solver returns the game-theoretic result well
+// within SOLVE_BUDGET nodes — benchmarked to never abort in this range, so the
+// bar is exact and stays deterministic. Earlier positions skip it (they'd blow
+// the budget) and use the heuristic estimate.
+const SOLVE_MIN_DISCS = 22;
+const SOLVE_BUDGET = 200000;
+const BOARD_CELLS = ROWS * COLS; // 42
+
+// Map an exact solver score to the side-to-move's win probability. The result is
+// game-theoretic (win / draw / loss under perfect play), so the bar commits
+// decisively: a proven win reads 82–98%, a proven draw exactly 50%, a proven
+// loss 2–18% — graded within each band by how *soon* the result arrives (a
+// larger score magnitude = a faster forced win/loss). The winning floor of 82%
+// sits above the heuristic's 94% ceiling only at the top, so a *proven* win
+// always reads as clearly decided.
+function solvedProb(score, moves) {
+  if (score === 0) return 0.5; // proven draw
+  if (score > 0) {
+    const fastest = Math.max(1, Math.trunc((BOARD_CELLS + 1 - moves) / 2));
+    return 0.82 + 0.16 * Math.min(1, score / fastest);
+  }
+  const fastest = Math.max(1, Math.trunc((BOARD_CELLS - moves) / 2));
+  return 0.18 - 0.16 * Math.min(1, -score / fastest);
+}
+
 /**
- * Estimate each player's chance to win in the current position — a deterministic
- * engine estimate (there's no exact solver), presented like a chess eval bar.
+ * Estimate each player's chance to win in the current position, presented like a
+ * chess eval bar.
  *
- * It is turn-aware in two ways: the minimax search runs from `playerToMove`'s
+ * In the second half of the game (≥ SOLVE_MIN_DISCS discs) it is *exact*: the
+ * bitboard solver returns the game-theoretic value under perfect play and
+ * solvedProb() maps it to the bar. Earlier positions have too large a tree to
+ * solve within the node budget, so they fall back to a heuristic estimate that
+ * is turn-aware in two ways: the minimax search runs from `playerToMove`'s
  * perspective (so tactics for the side on move are seen first), and the leaf
  * evaluation weights threat squares by odd/even-row parity relative to the
- * game's *first mover* — which is derived from whose turn it is now. Positions
+ * game's *first mover* — derived from whose turn it is now. Heuristic positions
  * that are a forced win/loss within the search horizon are pinned near the
  * extremes; everything else maps through a logistic and is clamped so those
  * extremes stay reserved for genuinely decided positions.
@@ -313,6 +345,18 @@ export function chooseMove(board, player, difficulty = 'medium') {
 export function winChance(board, playerToMove, depth = 6) {
   if (legalMoves(board).length === 0) return { [P1]: 50, [P2]: 50 };
   const opp = other(playerToMove);
+
+  // Exact solver first: in the endgame the position solves exactly and fast, so
+  // the bar reflects the true result under perfect play rather than an estimate.
+  if (countDiscs(board) >= SOLVE_MIN_DISCS) {
+    const solved = solveBoard(board, playerToMove, { budget: SOLVE_BUDGET });
+    if (solved) {
+      const pMover = solvedProb(solved.score, solved.moves);
+      const p1 = playerToMove === P1 ? pMover : 1 - pMover;
+      const p1pct = Math.round(p1 * 100);
+      return { [P1]: p1pct, [P2]: 100 - p1pct };
+    }
+  }
 
   // Who moved first this game? With `total` discs down it's the first mover's
   // turn when `total` is even, else the second mover's. This never changes
