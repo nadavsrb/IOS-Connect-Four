@@ -44,8 +44,8 @@ const DEFAULT_PREFS = {
   p1name: '',
   p2name: '',
   botname: 'Bot',
-  c1: '#ff3d7f',
-  c2: '#3dd7ff',
+  c1: '#ff3b30', // Player 1 — red (classic Connect Four)
+  c2: '#ffd23f', // Player 2 — yellow (classic Connect Four)
   difficulty: 'medium',
   timerSeconds: 0, // 0 = off; two-player mode only
   variant: 'classic', // 'classic' | 'popout'
@@ -72,6 +72,14 @@ function saveJSON(key, value) {
 }
 
 let prefs = loadJSON(PREFS_KEY, DEFAULT_PREFS);
+// One-time colour refresh: players still on the original neon default discs
+// (pink/cyan) move to the new classic red/yellow default. Deliberately chosen
+// colours are left untouched.
+if (prefs.c1 === '#ff3d7f' && prefs.c2 === '#3dd7ff') {
+  prefs.c1 = DEFAULT_PREFS.c1;
+  prefs.c2 = DEFAULT_PREFS.c2;
+  saveJSON(PREFS_KEY, prefs);
+}
 let stats = loadJSON(STATS_KEY, { 1: 0, 2: 0, draws: 0 });
 const savePrefs = () => saveJSON(PREFS_KEY, prefs);
 const saveStats = () => saveJSON(STATS_KEY, stats);
