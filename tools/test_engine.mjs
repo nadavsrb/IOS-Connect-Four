@@ -247,6 +247,27 @@ console.log('Bot: winChance evaluation bar');
   const wc2 = winChance(b, P2);
   ok('opponent to move against an open three is not favoured', wc2[P1] >= wc2[P2]);
 }
+{
+  // A double threat — three across the middle (cols 1,2,3) with both ends open —
+  // is essentially winning even when it's the *other* player's move, because the
+  // turn-aware search sees they can't block both winning squares (0 and 4).
+  const d = createBoard();
+  dropDisc(d, 1, P1);
+  dropDisc(d, 2, P1);
+  dropDisc(d, 3, P1);
+  const wc = winChance(d, P2); // P2 to move, but can't stop both
+  ok('unstoppable double threat reads as near-certain', wc[P1] >= 90);
+  ok('double-threat percentages sum to 100', wc[P1] + wc[P2] === 100);
+}
+{
+  // The estimate is turn-aware: in the same quiet position, the side to move is
+  // rated at least as well as when it's the opponent's move (tempo counts).
+  const q = createBoard();
+  for (const [c, p] of [[3, P1], [3, P2], [2, P1], [4, P2], [4, P1], [2, P2]]) dropDisc(q, c, p);
+  const p1WhenP1Moves = winChance(q, P1)[P1];
+  const p1WhenP2Moves = winChance(q, P2)[P1];
+  ok('turn matters: P1 rated no worse when it is P1 to move', p1WhenP1Moves >= p1WhenP2Moves);
+}
 
 console.log('');
 console.log(`Results: ${passed} passed, ${failed} failed`);

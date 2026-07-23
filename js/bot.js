@@ -117,12 +117,90 @@ function evaluate(board, me, opp) {
   return score;
 }
 
-// --- Minimax with alpha-beta --------------------------------------------------
+// --- Threat / parity evaluation (used by the win-% bar) -----------------------
 
-function minimax(board, depth, alpha, beta, maximizing, me, opp) {
+// All 69 four-in-a-row windows, precomputed once as flat [r,c, r,c, r,c, r,c].
+const WINDOWS = (() => {
+  const w = [];
+  const add = (cells) => w.push(cells.flat());
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c <= COLS - 4; c++) add([[r, c], [r, c + 1], [r, c + 2], [r, c + 3]]);
+  for (let c = 0; c < COLS; c++) for (let r = 0; r <= ROWS - 4; r++) add([[r, c], [r + 1, c], [r + 2, c], [r + 3, c]]);
+  for (let r = 0; r <= ROWS - 4; r++) for (let c = 0; c <= COLS - 4; c++) add([[r, c], [r + 1, c + 1], [r + 2, c + 2], [r + 3, c + 3]]);
+  for (let r = 3; r < ROWS; r++) for (let c = 0; c <= COLS - 4; c++) add([[r, c], [r - 1, c + 1], [r - 2, c + 2], [r - 3, c + 3]]);
+  return w;
+})();
+
+function countDiscs(board) {
+  let n = 0;
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (board[r][c] !== EMPTY) n++;
+  return n;
+}
+
+// Reused scratch buffers so a threat square counted by several windows is only
+// tallied once, without allocating on every (very hot) leaf evaluation.
+const _seenMe = new Uint8Array(ROWS * COLS);
+const _seenOpp = new Uint8Array(ROWS * COLS);
+
+// Richer, single-pass leaf evaluation for the win-% bar: centre control +
+// two-in-a-row potential + parity-weighted threat squares. A "threat square" is
+// an empty cell that would complete a four; the first mover cashes threats on
+// odd rows (from the bottom), the second mover on even rows — the classic
+// Connect Four zugzwang parity — and immediately playable threats count extra.
+// `firstMover` (P1/P2) is derived from whose turn it is, so this is turn-aware.
+// Positive = good for `me`.
+function evaluateBar(board, me, opp, firstMover) {
+  let score = 0;
+  for (let r = 0; r < ROWS; r++) {
+    const v = board[r][3];
+    if (v === me) score += 4; else if (v === opp) score -= 4;
+  }
+  _seenMe.fill(0);
+  _seenOpp.fill(0);
+  let meOdd = 0, meEven = 0, mePlay = 0, opOdd = 0, opEven = 0, opPlay = 0, meTwo = 0, opTwo = 0;
+  for (let i = 0; i < WINDOWS.length; i++) {
+    const w = WINDOWS[i];
+    const v0 = board[w[0]][w[1]], v1 = board[w[2]][w[3]], v2 = board[w[4]][w[5]], v3 = board[w[6]][w[7]];
+    let mine = 0, their = 0, empties = 0, er = -1, ec = -1;
+    if (v0 === me) mine++; else if (v0 === opp) their++; else { empties++; er = w[0]; ec = w[1]; }
+    if (v1 === me) mine++; else if (v1 === opp) their++; else { empties++; er = w[2]; ec = w[3]; }
+    if (v2 === me) mine++; else if (v2 === opp) their++; else { empties++; er = w[4]; ec = w[5]; }
+    if (v3 === me) mine++; else if (v3 === opp) their++; else { empties++; er = w[6]; ec = w[7]; }
+    if (mine && their) continue; // mixed window — no potential either way
+    if (mine === 3 && empties === 1) {
+      const idx = er * COLS + ec;
+      if (!_seenMe[idx]) {
+        _seenMe[idx] = 1;
+        if ((ROWS - er) & 1) meOdd++; else meEven++;
+        if (er + 1 >= ROWS || board[er + 1][ec] !== EMPTY) mePlay++;
+      }
+    } else if (mine === 2 && empties === 2) {
+      meTwo++;
+    } else if (their === 3 && empties === 1) {
+      const idx = er * COLS + ec;
+      if (!_seenOpp[idx]) {
+        _seenOpp[idx] = 1;
+        if ((ROWS - er) & 1) opOdd++; else opEven++;
+        if (er + 1 >= ROWS || board[er + 1][ec] !== EMPTY) opPlay++;
+      }
+    } else if (their === 2 && empties === 2) {
+      opTwo++;
+    }
+  }
+  score += (meTwo - opTwo) * 3;
+  score += (me === firstMover ? meOdd * 22 + meEven * 8 : meEven * 22 + meOdd * 8) + mePlay * 14;
+  score -= (opp === firstMover ? opOdd * 22 + opEven * 8 : opEven * 22 + opOdd * 8) + opPlay * 14;
+  return score;
+}
+
+// --- Minimax with alpha-beta --------------------------------------------------
+// `leafEval(board, me, opp)` overrides the depth-0 evaluation when provided (the
+// win-% bar passes a richer, parity-aware one); the bot leaves it undefined and
+// uses the lean positional `evaluate`.
+
+function minimax(board, depth, alpha, beta, maximizing, me, opp, leafEval) {
   const moves = orderedMoves(board);
   if (moves.length === 0) return 0; // draw
-  if (depth === 0) return evaluate(board, me, opp);
+  if (depth === 0) return leafEval ? leafEval(board, me, opp) : evaluate(board, me, opp);
 
   if (maximizing) {
     let value = -Infinity;
@@ -132,7 +210,7 @@ function minimax(board, depth, alpha, beta, maximizing, me, opp) {
       let score;
       if (checkWin(b, landing.row, landing.col)) score = WIN_SCORE + depth; // sooner wins score higher
       else if (isFull(b)) score = 0;
-      else score = minimax(b, depth - 1, alpha, beta, false, me, opp);
+      else score = minimax(b, depth - 1, alpha, beta, false, me, opp, leafEval);
       value = Math.max(value, score);
       alpha = Math.max(alpha, value);
       if (alpha >= beta) break;
@@ -147,7 +225,7 @@ function minimax(board, depth, alpha, beta, maximizing, me, opp) {
     let score;
     if (checkWin(b, landing.row, landing.col)) score = -WIN_SCORE - depth; // delay losses
     else if (isFull(b)) score = 0;
-    else score = minimax(b, depth - 1, alpha, beta, true, me, opp);
+    else score = minimax(b, depth - 1, alpha, beta, true, me, opp, leafEval);
     value = Math.min(value, score);
     beta = Math.min(beta, value);
     if (alpha >= beta) break;
@@ -221,19 +299,36 @@ export function chooseMove(board, player, difficulty = 'medium') {
 /**
  * Estimate each player's chance to win in the current position — a deterministic
  * engine estimate (there's no exact solver), presented like a chess eval bar.
- * Runs the same minimax from `playerToMove`'s perspective and maps the value to a
- * probability via a logistic curve; forced wins/losses are pinned near 99/1.
+ *
+ * It is turn-aware in two ways: the minimax search runs from `playerToMove`'s
+ * perspective (so tactics for the side on move are seen first), and the leaf
+ * evaluation weights threat squares by odd/even-row parity relative to the
+ * game's *first mover* — which is derived from whose turn it is now. Positions
+ * that are a forced win/loss within the search horizon are pinned near the
+ * extremes; everything else maps through a logistic and is clamped so those
+ * extremes stay reserved for genuinely decided positions.
+ *
  * @returns {{1:number, 2:number}} integer percentages that sum to 100.
  */
 export function winChance(board, playerToMove, depth = 6) {
-  if (legalMoves(board).length === 0) return { 1: 50, 2: 50 };
+  if (legalMoves(board).length === 0) return { [P1]: 50, [P2]: 50 };
   const opp = other(playerToMove);
-  const v = minimax(board, depth, -Infinity, Infinity, true, playerToMove, opp);
+
+  // Who moved first this game? With `total` discs down it's the first mover's
+  // turn when `total` is even, else the second mover's. This never changes
+  // during a game and drives the odd/even threat parity in evaluateBar.
+  const firstMover = countDiscs(board) % 2 === 0 ? playerToMove : opp;
+  const leafEval = (b, me, op) => evaluateBar(b, me, op, firstMover);
+
+  const v = minimax(board, depth, -Infinity, Infinity, true, playerToMove, opp, leafEval);
 
   let pMover;
-  if (v >= WIN_SCORE) pMover = 0.99;
-  else if (v <= -WIN_SCORE) pMover = 0.01;
-  else pMover = 1 / (1 + Math.exp(-v / EVAL_K));
+  if (v >= WIN_SCORE) pMover = 0.985; // forced win within the horizon
+  else if (v <= -WIN_SCORE) pMover = 0.015; // forced loss within the horizon
+  else {
+    pMover = 1 / (1 + Math.exp(-v / EVAL_K));
+    pMover = Math.max(0.06, Math.min(0.94, pMover)); // reserve the extremes for decided positions
+  }
 
   const p1 = playerToMove === P1 ? pMover : 1 - pMover;
   const p1pct = Math.round(p1 * 100);
