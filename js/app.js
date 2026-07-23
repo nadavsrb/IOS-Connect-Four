@@ -36,6 +36,37 @@ const PALETTE = [
 const THEMES = ['neon', 'classic', 'minimal'];
 const THEME_LABEL = { neon: 'Neon', classic: 'Classic', minimal: 'Minimal' };
 
+// Inline SVG icons (inherit `currentColor`), filled into [data-icon] holders by
+// installIcons(). Emoji render inconsistently across devices; these don't.
+const S = (body, opts = '') => `<svg viewBox="0 0 24 24" ${opts || 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
+const ICONS = {
+  robot: S('<rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4.5v3.5"/><circle cx="12" cy="3.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="9" cy="13.5" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="13.5" r="1.3" fill="currentColor" stroke="none"/><path d="M9.5 17h5"/>'),
+  users: S('<circle cx="9" cy="8" r="3"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M16 5.5a3 3 0 0 1 0 5"/><path d="M17.5 20a5.5 5.5 0 0 0-2.8-4.8"/>'),
+  volume: S('<path d="M4 9.5v5h3.5L13 19V5L7.5 9.5H4z"/><path d="M16.5 9a3.5 3.5 0 0 1 0 6"/><path d="M19 6.5a7 7 0 0 1 0 11"/>'),
+  mute: S('<path d="M4 9.5v5h3.5L13 19V5L7.5 9.5H4z"/><path d="M17 9.5l4 5M21 9.5l-4 5"/>'),
+  trash: S('<path d="M4 7h16"/><path d="M9 7V4.5h6V7"/><path d="M6.5 7l1 12.5h9L17.5 7"/>'),
+  palette: S('<path d="M12 3a9 9 0 1 0 0 18c1.6 0 2-1.2 1.2-2.1-.8-1 .1-2.4 1.3-2.4H17a4 4 0 0 0 4-4c0-4.6-4-6.5-9-6.5z"/><circle cx="7.5" cy="11.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="12" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="16" cy="10.5" r="1.1" fill="currentColor" stroke="none"/>'),
+  play: S('<path d="M8 5v14l11-7z"/>', 'fill="currentColor"'),
+  pause: S('<rect x="6.5" y="5" width="3.5" height="14" rx="1"/><rect x="14" y="5" width="3.5" height="14" rx="1"/>', 'fill="currentColor"'),
+  prev: S('<path d="M16 5v14L5 12z"/>', 'fill="currentColor"'),
+  skipBack: S('<rect x="5" y="5" width="2.4" height="14" rx="1"/><path d="M20 5v14l-11-7z"/>', 'fill="currentColor"'),
+  skipFwd: S('<rect x="16.6" y="5" width="2.4" height="14" rx="1"/><path d="M4 5v14l11-7z"/>', 'fill="currentColor"'),
+  bulb: S('<path d="M9.5 18h5"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.8 10.6c.6.5.8 1 .8 1.4h6c0-.4.2-.9.8-1.4A6 6 0 0 0 12 3z"/>'),
+  bars: S('<path d="M4 20V4"/><path d="M4 20h16"/><rect x="7" y="12" width="2.6" height="5" fill="currentColor" stroke="none"/><rect x="11" y="8.5" width="2.6" height="8.5" fill="currentColor" stroke="none"/><rect x="15" y="14" width="2.6" height="3" fill="currentColor" stroke="none"/>'),
+  trend: S('<path d="M4 20V4"/><path d="M4 20h16"/><path d="M7 15l3.5-3.5 3 2 4-5"/>'),
+  undo: S('<path d="M8 8h7a5 5 0 0 1 0 10H9"/><path d="M8 4.5L4.5 8 8 11.5"/>'),
+  popout: S('<path d="M12 20V7"/><path d="M7 12l5-5 5 5"/><path d="M6 4h12"/>'),
+  back: S('<path d="M15 5l-7 7 7 7"/>', 'fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"'),
+  restart: S('<path d="M20 11.5a8 8 0 1 0-.8 4"/><path d="M20 4v5.5h-5.5"/>'),
+};
+
+function installIcons(root = document) {
+  root.querySelectorAll('[data-icon]').forEach((el) => {
+    const name = el.dataset.icon;
+    if (ICONS[name]) el.innerHTML = ICONS[name];
+  });
+}
+
 // ---------------------------------------------------------------- persistence
 
 const PREFS_KEY = 'c4.prefs.v1';
@@ -1095,7 +1126,7 @@ function updatePopControl() {
   popToggleBtn.hidden = !show;
   popToggleBtn.setAttribute('aria-pressed', String(game.popArmed));
   popToggleBtn.classList.toggle('armed', game.popArmed);
-  popToggleBtn.textContent = game.popArmed ? '↥ Popping' : '↥ Pop out';
+  popToggleBtn.querySelector('.btn-label').textContent = game.popArmed ? 'Popping' : 'Pop out';
   boardEl.classList.toggle('pop-mode', show && game.popArmed);
 }
 
@@ -1404,7 +1435,7 @@ function toggleReplayPlay() {
   }
   if (replay.index >= replay.data.moves.length) replayStepTo(0, false); // restart from the top
   replay.playing = true;
-  rpPlayBtn.textContent = '⏸ Pause';
+  setReplayPlayBtn(true);
   replay.timer = setInterval(() => {
     if (replay.index >= replay.data.moves.length) {
       stopReplayPlay();
@@ -1416,18 +1447,26 @@ function toggleReplayPlay() {
 
 function stopReplayPlay() {
   replay.playing = false;
-  if (rpPlayBtn) rpPlayBtn.textContent = '▶ Play';
+  setReplayPlayBtn(false);
   if (replay.timer) {
     clearInterval(replay.timer);
     replay.timer = null;
   }
 }
 
+function setReplayPlayBtn(playing) {
+  if (!rpPlayBtn) return;
+  const ico = rpPlayBtn.querySelector('.ico');
+  const label = rpPlayBtn.querySelector('.rp-play-label');
+  if (ico) ico.innerHTML = ICONS[playing ? 'pause' : 'play'];
+  if (label) label.textContent = playing ? 'Pause' : 'Play';
+}
+
 // ---------------------------------------------------------------- sound toggle & stats reset
 
 function updateSoundChip() {
   soundChip.setAttribute('aria-pressed', String(!prefs.muted));
-  soundChip.querySelector('.chip-icon').textContent = prefs.muted ? '🔇' : '🔊';
+  soundChip.querySelector('.chip-icon').innerHTML = ICONS[prefs.muted ? 'mute' : 'volume'];
   soundChip.querySelector('.chip-label').textContent = prefs.muted ? 'Muted' : 'Sound';
 }
 
@@ -1558,6 +1597,7 @@ function clearAim() {
 // ---------------------------------------------------------------- wiring
 
 function wire() {
+  installIcons();
   buildSwatches(1, swatches1);
   buildSwatches(2, swatches2);
   updateSoundChip();

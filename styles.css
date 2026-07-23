@@ -284,6 +284,16 @@ body::before {
 .chip[aria-pressed="false"] { opacity: 0.55; }
 .chip-icon { font-size: 1rem; }
 
+/* Inline SVG icons — inherit button colour via currentColor. */
+[data-icon] { display: inline-flex; align-items: center; justify-content: center; }
+[data-icon] svg { width: 1.1em; height: 1.1em; display: block; }
+.ico { display: inline-flex; align-items: center; vertical-align: -0.18em; }
+.chip-icon svg { width: 1.15em; height: 1.15em; }
+.btn-mode-icon svg { width: 2rem; height: 2rem; }
+.icon-btn svg { width: 1.5rem; height: 1.5rem; }
+.btn .ico { margin-right: 3px; }
+.btn .ico svg { width: 1.2em; height: 1.2em; }
+
 /* ---------------- Top bar ---------------- */
 
 .topbar {

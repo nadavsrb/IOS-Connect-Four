@@ -27,6 +27,8 @@ icon, works **offline**, and feels like a native app.
 - 🎨 **Themes** — switch between **Classic** (glossy blue cabinet — the default), **Neon**, and
   **Minimal** (light, flat). The board is drawn as a real moulded cabinet with drilled holes.
 - 🏆 **Scoreboard** — win/draw tallies that persist between sessions.
+- 📈 **Stats** — a dedicated screen with your total games, win rate vs the bot (overall and per
+  difficulty), two-player tally, and current/best win streak.
 - 🔊 **Sound effects** — generated live with the Web Audio API (no audio files), with a mute toggle.
 - ✏️ **Custom names & disc colours** — pick from the palette before each match.
 - 📳 **Haptics** — vibration on drops and wins *(see the note below about iOS)*.
