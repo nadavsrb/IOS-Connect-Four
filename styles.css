@@ -4,6 +4,7 @@
 
 :root {
   color-scheme: dark; /* browser overscroll/backdrop surfaces render dark, not white */
+  --canvas: #06060f; /* solid base behind the fixed neon layer; matches its bottom colour per theme */
   --bg-0: #06060f;
   --bg-1: #0a0a1f;
   --panel: rgba(255, 255, 255, 0.05);
@@ -49,13 +50,12 @@ html, body {
    tint) below it, hiding them. A soft bottom-centre glow keeps the very bottom
    of the page from ever reading as a flat black "cut" (incl. overscroll). */
 html {
-  /* Solid base colour first — it propagates to the whole canvas (incl. the iOS
-     toolbar-transition / overscroll gap), so the bottom never flashes white.
-     The gradients layer on top for the neon look. */
-  background-color: var(--bg-0);
-  background-image:
-    radial-gradient(95% 55% at 50% 108%, rgba(123, 92, 255, 0.22), transparent 62%),
-    linear-gradient(160deg, var(--bg-1), var(--bg-0));
+  /* Single solid canvas that matches the fixed neon layer's bottom colour for the
+     active theme (--canvas). Because the two agree, any sliver the fixed layer
+     doesn't cover — the bottom safe-area, overscroll, a transition frame — blends
+     in seamlessly instead of showing a different colour. The gradient/neon look
+     lives entirely on body::before. */
+  background: var(--canvas);
 }
 body { background: transparent; }
 
@@ -76,7 +76,7 @@ body::before {
   width: 100%;
   height: 100vh; /* oldest fallback */
   height: 100lvh; /* modern fallback (before JS runs) */
-  height: var(--app-vh, 100lvh); /* JS pins to the true viewport height */
+  height: calc(var(--app-vh, 100lvh) + 8px); /* JS pins to viewport height; +8px over-covers the bottom edge */
   z-index: -2;
   background:
     radial-gradient(52% 40% at 12% 0%, rgba(255, 61, 127, 0.40), transparent 62%),
@@ -102,7 +102,7 @@ body::before {
   width: 100%;
   height: 100vh; /* oldest fallback */
   height: 100lvh; /* modern fallback (before JS runs) */
-  height: var(--app-vh, 100lvh); /* JS pins to the true viewport height */
+  height: calc(var(--app-vh, 100lvh) + 8px); /* match the neon layer's over-cover */
   z-index: -1;
   pointer-events: none;
   opacity: var(--danger, 0); /* driven by the timer; visibility comes from opacity alone */
@@ -1033,7 +1033,7 @@ body::before {
    a few components. Disc colours stay player-chosen in every theme. */
 
 /* Classic: deep-blue board, subdued glow */
-:root[data-theme="classic"] { --accent: #2b6fe6; }
+:root[data-theme="classic"] { --accent: #2b6fe6; --canvas: #0a1226; } /* matches the classic body::before bottom */
 :root[data-theme="classic"] body::before {
   background:
     radial-gradient(60% 45% at 50% 0%, rgba(60, 120, 230, 0.28), transparent 60%),
@@ -1077,6 +1077,7 @@ body::before {
 /* Minimal: light, flat, soft */
 :root[data-theme="minimal"] {
   color-scheme: light; /* light theme → light browser surfaces */
+  --canvas: #e7ecf6; /* matches the minimal body::before bottom */
   --bg-0: #eef1f7;
   --bg-1: #f7f9fc;
   --text: #1b2038;
