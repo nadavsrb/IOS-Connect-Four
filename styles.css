@@ -299,10 +299,20 @@ body::before {
   width: 26px; height: 26px;
   border-radius: 50%;
   flex: 0 0 auto;
-  box-shadow: 0 0 14px 2px currentColor;
+  /* flat neon token, matching the swatches and the in-game discs */
+  background:
+    radial-gradient(circle at 50% 34%,
+      color-mix(in srgb, currentColor 78%, white) 0%,
+      currentColor 46%,
+      color-mix(in srgb, currentColor 82%, black) 100%);
+  box-shadow:
+    0 0 6px 1px color-mix(in srgb, currentColor 45%, transparent),
+    inset 0 0 0 2px color-mix(in srgb, currentColor 55%, black),
+    inset 0 2px 3px rgba(255, 255, 255, 0.2),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.3);
 }
-#dot-1 { color: var(--p1); background: var(--p1); }
-#dot-2 { color: var(--p2); background: var(--p2); }
+#dot-1 { color: var(--p1); }
+#dot-2 { color: var(--p2); }
 
 .name-input {
   flex: 1;
@@ -325,6 +335,9 @@ body::before {
   gap: 10px;
   margin-top: 14px;
 }
+/* The colour swatches mirror the in-game disc: a flat neon token (checker) with
+   a centred fill, a raised concentric ridge (::before) and a centre dimple
+   (::after) — not a glossy off-centre ball. */
 .swatch {
   width: 34px; height: 34px;
   border-radius: 50%;
@@ -332,13 +345,44 @@ body::before {
   cursor: pointer;
   padding: 0;
   position: relative;
-  box-shadow: 0 0 10px 1px var(--sw);
-  background: radial-gradient(circle at 32% 28%, rgba(255,255,255,0.75), var(--sw) 46%);
+  background:
+    radial-gradient(circle at 50% 34%,
+      color-mix(in srgb, var(--sw) 78%, white) 0%,
+      var(--sw) 46%,
+      color-mix(in srgb, var(--sw) 82%, black) 100%);
+  box-shadow:
+    0 0 8px 1px color-mix(in srgb, var(--sw) 60%, transparent),
+    inset 0 0 0 2px color-mix(in srgb, var(--sw) 55%, black),
+    inset 0 2px 3px rgba(255, 255, 255, 0.18),
+    inset 0 -3px 5px rgba(0, 0, 0, 0.3);
+}
+.swatch::before {
+  content: "";
+  position: absolute;
+  inset: 17%;
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 0 2px color-mix(in srgb, var(--sw) 45%, black),
+    0 1px 0 rgba(255, 255, 255, 0.14);
+}
+.swatch::after {
+  content: "";
+  position: absolute;
+  inset: 38%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%,
+    color-mix(in srgb, var(--sw) 70%, white),
+    color-mix(in srgb, var(--sw) 88%, black));
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 .swatch[aria-pressed="true"] {
   border-color: #fff;
   transform: scale(1.12);
-  box-shadow: 0 0 16px 3px var(--sw);
+  box-shadow:
+    0 0 14px 3px color-mix(in srgb, var(--sw) 60%, transparent),
+    inset 0 0 0 2px color-mix(in srgb, var(--sw) 55%, black),
+    inset 0 2px 3px rgba(255, 255, 255, 0.18),
+    inset 0 -3px 5px rgba(0, 0, 0, 0.3);
 }
 .swatch[disabled] { opacity: 0.25; cursor: not-allowed; }
 
