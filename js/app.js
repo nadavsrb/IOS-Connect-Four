@@ -1153,10 +1153,7 @@ function showHint() {
   clearHint();
   const col = chooseMove(cloneBoard(game.board), game.current, 'insane');
   if (col == null) return;
-  let row = -1;
-  for (let r = ROWS - 1; r >= 0; r--) {
-    if (game.board[r][col] === EMPTY) { row = r; break; }
-  }
+  const row = lowestEmptyRow(game.board, col);
   if (row < 0) return;
   for (let r = 0; r < ROWS; r++) cellAt(r, col).classList.add('hint');
   const ghost = spawnDisc(boardEl, row, col, colorFor(game.current));
@@ -1306,8 +1303,7 @@ function showReplayHint() {
   const mover = replayMoverAt(replay.index);
   const col = chooseMove(cloneBoard(board), mover, 'insane');
   if (col == null) return;
-  let row = -1;
-  for (let r = ROWS - 1; r >= 0; r--) if (board[r][col] === EMPTY) { row = r; break; }
+  const row = lowestEmptyRow(board, col);
   if (row < 0) return;
   for (let r = 0; r < ROWS; r++) cellIn(replayBoardEl, r, col).classList.add('hint');
   const ghost = spawnDisc(replayBoardEl, row, col, d.colors[mover]);
@@ -1419,9 +1415,9 @@ function setHoverCol(col) {
 
 const aimState = { pointerId: null };
 
-// Lowest empty row in a column, or -1 if the column is full.
-function landingRow(col) {
-  for (let r = ROWS - 1; r >= 0; r--) if (game.board[r][col] === 0) return r;
+// Lowest empty row in `col` for a given board, or -1 if the column is full.
+function lowestEmptyRow(board, col) {
+  for (let r = ROWS - 1; r >= 0; r--) if (board[r][col] === EMPTY) return r;
   return -1;
 }
 
@@ -1450,7 +1446,7 @@ function renderAim(col) {
   boardEl.querySelectorAll('.disc.aim').forEach((d) => d.remove());
   setHoverCol(col);
   if (col == null || !canAim()) return;
-  const r = landingRow(col);
+  const r = lowestEmptyRow(game.board, col);
   if (r < 0) return; // full column — the highlight still shows, but there's no landing hole
   const ghost = document.createElement('div');
   ghost.className = 'disc aim';
@@ -1541,6 +1537,8 @@ function wire() {
     if (!canPlay()) return;
     const cell = e.target.closest('.cell');
     if (!cell) return;
+    // A fresh press always takes over the active pointer, so a lost pointerup
+    // (rare) can never wedge the board.
     aimState.pointerId = e.pointerId;
     try { boardEl.setPointerCapture(e.pointerId); } catch { /* not fatal */ }
     renderAim(Number(cell.dataset.col));

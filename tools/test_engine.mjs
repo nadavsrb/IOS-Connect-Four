@@ -15,6 +15,7 @@ import {
   isFull,
   legalMoves,
   isColumnFull,
+  other,
 } from '../js/engine.js';
 import { chooseMove, winChance } from '../js/bot.js';
 
@@ -267,6 +268,64 @@ console.log('Bot: winChance evaluation bar');
   const p1WhenP1Moves = winChance(q, P1)[P1];
   const p1WhenP2Moves = winChance(q, P2)[P1];
   ok('turn matters: P1 rated no worse when it is P1 to move', p1WhenP1Moves >= p1WhenP2Moves);
+}
+
+console.log('Bot: winChance invariants over random positions');
+{
+  // A quick random self-play to reach a legal, non-terminal position.
+  const randomBoard = (plies) => {
+    const b = createBoard();
+    let cur = P1;
+    for (let i = 0; i < plies; i++) {
+      const moves = legalMoves(b);
+      if (!moves.length) break;
+      const l = dropDisc(b, moves[Math.floor(Math.random() * moves.length)], cur);
+      if (checkWin(b, l.row, l.col)) break;
+      cur = other(cur);
+    }
+    return b;
+  };
+  const swapColors = (b) => b.map((row) => row.map((v) => (v === 0 ? 0 : v === P1 ? P2 : P1)));
+  const mirror = (b) => b.map((row) => row.slice().reverse());
+
+  let validOK = true, mirrorOK = true, fairOK = true;
+  for (let i = 0; i < 400; i++) {
+    const b = randomBoard(Math.floor(Math.random() * 26));
+    const m = Math.random() < 0.5 ? P1 : P2;
+    const wc = winChance(b, m);
+    if (wc[P1] + wc[P2] !== 100 || wc[P1] < 0 || wc[P1] > 100) validOK = false;
+    // Board mirrored left-right is the same game → identical aggregate odds.
+    const mir = winChance(mirror(b), m);
+    if (Math.abs(mir[P1] - wc[P1]) > 1) mirrorOK = false;
+    // Swapping both colours and the side to move must swap the percentages
+    // (no built-in bias toward either player).
+    const sw = winChance(swapColors(b), other(m));
+    if (Math.abs(sw[P2] - wc[P1]) > 1) fairOK = false;
+  }
+  ok('winChance always returns valid percentages summing to 100', validOK);
+  ok('winChance is symmetric under a left-right board mirror', mirrorOK);
+  ok('winChance is fair under colour + side-to-move swap', fairOK);
+}
+
+console.log('Bot: self-play is robust at every difficulty');
+{
+  let clean = true;
+  for (const diff of ['easy', 'medium', 'hard', 'insane']) {
+    for (let g = 0; g < 4 && clean; g++) {
+      const b = createBoard();
+      let cur = P1;
+      for (let ply = 0; ply < 42; ply++) {
+        const moves = legalMoves(b);
+        if (!moves.length) break;
+        const c = chooseMove(b, cur, diff);
+        if (!moves.includes(c)) { clean = false; break; }
+        const l = dropDisc(b, c, cur);
+        if (checkWin(b, l.row, l.col)) break;
+        cur = other(cur);
+      }
+    }
+  }
+  ok('every difficulty only ever plays legal moves to game end', clean);
 }
 
 console.log('');
