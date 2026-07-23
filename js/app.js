@@ -19,6 +19,7 @@ import {
   other,
 } from './engine.js';
 import { chooseMove, winChance } from './bot.js';
+import { emptyHistory, recordGame, summarize, winRate, DIFFICULTIES, DIFFICULTY_LABEL } from './stats.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
@@ -39,6 +40,7 @@ const THEME_LABEL = { neon: 'Neon', classic: 'Classic', minimal: 'Minimal' };
 
 const PREFS_KEY = 'c4.prefs.v1';
 const STATS_KEY = 'c4.stats.v1';
+const HISTORY_KEY = 'c4.history.v1';
 
 const DEFAULT_PREFS = {
   p1name: '',
@@ -82,8 +84,10 @@ if (prefs.c1 === '#ff3d7f' && prefs.c2 === '#3dd7ff') {
   saveJSON(PREFS_KEY, prefs);
 }
 let stats = loadJSON(STATS_KEY, { 1: 0, 2: 0, draws: 0 });
+let history = loadJSON(HISTORY_KEY, emptyHistory());
 const savePrefs = () => saveJSON(PREFS_KEY, prefs);
 const saveStats = () => saveJSON(STATS_KEY, stats);
+const saveHistory = () => saveJSON(HISTORY_KEY, history);
 
 // ---------------------------------------------------------------- sound (Web Audio)
 
@@ -98,7 +102,8 @@ const sound = (() => {
     if (ctx.state === 'suspended') ctx.resume();
     return ctx;
   }
-  function tone(freq, dur, type = 'sine', gain = 0.12, when = 0) {
+  // A short enveloped oscillator; pass `f2` to glide the pitch (gives a "thock").
+  function tone(freq, dur, type = 'sine', gain = 0.12, when = 0, f2 = null) {
     if (prefs.muted) return;
     const c = ensure();
     if (!c) return;
@@ -107,35 +112,62 @@ const sound = (() => {
     const g = c.createGain();
     osc.type = type;
     osc.frequency.setValueAtTime(freq, t0);
+    if (f2 != null) osc.frequency.exponentialRampToValueAtTime(Math.max(1, f2), t0 + dur);
     g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(gain, t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(gain, t0 + 0.008);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     osc.connect(g);
     g.connect(c.destination);
     osc.start(t0);
     osc.stop(t0 + dur + 0.03);
   }
+  // A brief band-passed noise burst — the "clack" of a disc seating into a slot.
+  function noise(dur, gain, freq, when = 0) {
+    if (prefs.muted) return;
+    const c = ensure();
+    if (!c) return;
+    const t0 = c.currentTime + when;
+    const frames = Math.max(1, Math.floor(c.sampleRate * dur));
+    const buf = c.createBuffer(1, frames, c.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < frames; i++) data[i] = Math.random() * 2 - 1;
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    const bp = c.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = freq;
+    bp.Q.value = 0.7;
+    const g = c.createGain();
+    g.gain.setValueAtTime(gain, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    src.connect(bp);
+    bp.connect(g);
+    g.connect(c.destination);
+    src.start(t0);
+    src.stop(t0 + dur + 0.02);
+  }
   return {
     unlock: ensure,
     drop() {
-      tone(230, 0.12, 'triangle', 0.14);
-      tone(150, 0.16, 'sine', 0.09, 0.01);
+      tone(300, 0.14, 'triangle', 0.13, 0, 120); // downward glide = a hollow "thock"
+      noise(0.05, 0.06, 900, 0.004); // the seating clack
     },
     win() {
-      [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.24, 'triangle', 0.13, i * 0.1));
+      [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.28, 'triangle', 0.12, i * 0.09)); // bright arpeggio + sparkle
     },
     draw() {
-      tone(300, 0.2, 'sine', 0.1);
-      tone(240, 0.3, 'sine', 0.09, 0.13);
+      tone(360, 0.22, 'sine', 0.1, 0, 300);
+      tone(280, 0.32, 'sine', 0.09, 0.14, 220);
     },
     invalid() {
-      tone(120, 0.16, 'sawtooth', 0.08);
+      tone(150, 0.18, 'sawtooth', 0.07, 0, 90); // dull descending buzz
+      noise(0.06, 0.03, 320);
     },
     click() {
-      tone(460, 0.05, 'square', 0.04);
+      tone(520, 0.045, 'square', 0.03, 0, 380); // soft UI click
     },
     tick() {
-      tone(700, 0.05, 'sine', 0.05);
+      tone(760, 0.045, 'sine', 0.045);
     },
   };
 })();
@@ -261,8 +293,10 @@ const colorFor = (player) => game.colors[player];
 
 // ---------------------------------------------------------------- screens
 
+let currentScreen = 'screen-menu';
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach((s) => s.classList.toggle('is-active', s.id === id));
+  currentScreen = id;
 }
 
 // ---------------------------------------------------------------- setup screen
@@ -617,6 +651,8 @@ function endGame(winner, cells, reason) {
   updatePopControl();
   updateHintBtn();
   recordLastGame(winner, cells, reason);
+  history = recordGame(history, { mode: game.mode, difficulty: game.difficulty, winner });
+  saveHistory();
   setEvalFinal(winner);
 
   if (winner === 'draw') {
@@ -1389,6 +1425,8 @@ function toggleSound() {
 function resetStats() {
   stats = { 1: 0, 2: 0, draws: 0 };
   saveStats();
+  history = emptyHistory();
+  saveHistory();
   renderScores();
   const label = $('#btn-reset-stats .chip-label');
   const prev = label.textContent;
@@ -1396,6 +1434,44 @@ function resetStats() {
   setTimeout(() => {
     label.textContent = prev;
   }, 1200);
+  if (currentScreen === 'screen-stats') renderStats(); // refresh if we're looking at it
+}
+
+// ---------------------------------------------------------------- stats screen
+
+function openStats() {
+  renderStats();
+  showScreen('screen-stats');
+}
+
+function renderStats() {
+  const s = summarize(history);
+  $('#stat-total').textContent = String(s.total);
+  $('#stat-bot-winrate').textContent = `${winRate(s.bot)}%`;
+  $('#stat-streak').textContent = String(s.streakCurrent);
+  $('#stat-streak-best').textContent = String(s.streakBest);
+  $('#stat-bot-line').textContent = s.bot.played
+    ? `${s.bot.played} played · ${s.bot.won}W · ${s.bot.lost}L · ${s.bot.drawn}D`
+    : 'No games yet';
+  $('#stat-2p-line').textContent = s.twoPlayer.played
+    ? `${s.twoPlayer.played} played · P1 ${s.twoPlayer.p1} · P2 ${s.twoPlayer.p2} · Draws ${s.twoPlayer.drawn}`
+    : 'No games yet';
+
+  const diffWrap = $('#stats-difficulty');
+  diffWrap.innerHTML = '';
+  for (const d of DIFFICULTIES) {
+    const bucket = s.perDifficulty[d];
+    const rate = winRate(bucket);
+    const row = document.createElement('div');
+    row.className = 'diff-row';
+    row.innerHTML =
+      `<span class="diff-name">${DIFFICULTY_LABEL[d]}</span>` +
+      `<span class="diff-bar"><i style="width:${bucket.played ? rate : 0}%"></i></span>` +
+      `<span class="diff-val">${bucket.played ? `${rate}% · ${bucket.played}` : '—'}</span>`;
+    diffWrap.appendChild(row);
+  }
+
+  $('#stat-empty').hidden = s.total > 0;
 }
 
 // ---------------------------------------------------------------- column hover (pointer devices)
@@ -1482,6 +1558,7 @@ function wire() {
   soundChip.addEventListener('click', toggleSound);
   themeChip.addEventListener('click', cycleTheme);
   $('#btn-reset-stats').addEventListener('click', resetStats);
+  $('#btn-stats').addEventListener('click', openStats);
 
   // Replay entry points + controls
   $('#btn-watch-replay').addEventListener('click', () => enterReplay(lastGame));

@@ -61,6 +61,9 @@
         <button id="btn-replay-last" class="chip" title="Replay your last game" hidden>
           <span class="chip-icon">▶</span><span class="chip-label">Replay last</span>
         </button>
+        <button id="btn-stats" class="chip" title="View your stats">
+          <span class="chip-icon">📈</span><span class="chip-label">Stats</span>
+        </button>
       </div>
     </section>
 
@@ -241,6 +244,43 @@
 
       <div class="replay-actions">
         <button id="rp-hint" class="btn btn-ghost">💡 Best move</button>
+      </div>
+    </section>
+
+    <!-- ================= STATS ================= -->
+    <section id="screen-stats" class="screen" aria-label="Statistics">
+      <header class="topbar">
+        <button class="icon-btn" data-nav="menu" aria-label="Back to menu">‹</button>
+        <h2 class="topbar-title">Stats</h2>
+        <span class="icon-btn-spacer"></span>
+      </header>
+
+      <div class="stats-body">
+        <div class="stat-cards">
+          <div class="stat-card">
+            <span class="stat-num" id="stat-total">0</span>
+            <span class="stat-cap">Games</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-num" id="stat-bot-winrate">0%</span>
+            <span class="stat-cap">Win rate vs bot</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-num" id="stat-streak">0</span>
+            <span class="stat-cap">Win streak · best <span id="stat-streak-best">0</span></span>
+          </div>
+        </div>
+
+        <div class="stat-section">
+          <p class="field-label">Vs Bot <span class="stat-line" id="stat-bot-line">No games yet</span></p>
+          <div class="stat-diff" id="stats-difficulty"></div>
+        </div>
+
+        <div class="stat-section">
+          <p class="field-label">Two players <span class="stat-line" id="stat-2p-line">No games yet</span></p>
+        </div>
+
+        <p class="stat-empty" id="stat-empty" hidden>Play a game to start building your stats.</p>
       </div>
     </section>
 

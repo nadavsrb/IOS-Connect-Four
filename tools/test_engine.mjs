@@ -18,6 +18,7 @@ import {
   other,
 } from '../js/engine.js';
 import { chooseMove, winChance } from '../js/bot.js';
+import { emptyHistory, recordGame, summarize, winRate } from '../js/stats.js';
 
 let passed = 0;
 let failed = 0;
@@ -326,6 +327,34 @@ console.log('Bot: self-play is robust at every difficulty');
     }
   }
   ok('every difficulty only ever plays legal moves to game end', clean);
+}
+
+console.log('Stats: history aggregation');
+{
+  let h = emptyHistory();
+  h = recordGame(h, { mode: 'bot', difficulty: 'hard', winner: 1 });
+  h = recordGame(h, { mode: 'bot', difficulty: 'hard', winner: 1 });
+  h = recordGame(h, { mode: 'bot', difficulty: 'insane', winner: 2 });
+  h = recordGame(h, { mode: 'bot', difficulty: 'medium', winner: 'draw' });
+  h = recordGame(h, { mode: '2p', winner: 2 });
+  const s = summarize(h);
+  ok('counts total games', s.total === 5);
+  ok('bot record is 2W 1L 1D', s.bot.won === 2 && s.bot.lost === 1 && s.bot.drawn === 1);
+  ok('per-difficulty hard is 2 played / 2 won', s.perDifficulty.hard.played === 2 && s.perDifficulty.hard.won === 2);
+  ok('winRate(hard) is 100%', winRate(s.perDifficulty.hard) === 100);
+  ok('two-player tally records P2 win', s.twoPlayer.played === 1 && s.twoPlayer.p2 === 1);
+  ok('a draw resets the current streak', s.streakCurrent === 0);
+  ok('best streak was 2', s.streakBest === 2);
+}
+{
+  let h = emptyHistory();
+  h = recordGame(h, { mode: 'bot', difficulty: 'easy', winner: 2 }); // loss
+  h = recordGame(h, { mode: 'bot', difficulty: 'easy', winner: 1 }); // win
+  h = recordGame(h, { mode: '2p', winner: 1 }); // 2-player games don't affect the vs-bot streak
+  h = recordGame(h, { mode: 'bot', difficulty: 'easy', winner: 1 }); // win
+  const s = summarize(h);
+  ok('current streak counts trailing vs-bot wins (2)', s.streakCurrent === 2);
+  ok('empty history summarizes to zero games', summarize(emptyHistory()).total === 0);
 }
 
 console.log('');
