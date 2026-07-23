@@ -321,6 +321,16 @@ try {
   await wait(200);
   ok('“Replay last” chip appears after a game', !(await page.locator('#btn-replay-last').evaluate((el) => el.hidden)));
 
+  // --- Stats screen ---
+  await page.locator('#btn-stats').click();
+  await wait(200);
+  ok('stats screen opens from the menu', await page.locator('#screen-stats').evaluate((el) => el.classList.contains('is-active')));
+  ok('stats recorded games from this run', Number(await page.locator('#stat-total').textContent()) > 0);
+  ok('per-difficulty rows render (4)', (await page.locator('#stats-difficulty .diff-row').count()) === 4);
+  await page.locator('#screen-stats [data-nav="menu"]').click();
+  await wait(150);
+  ok('back from stats returns to the menu', await page.locator('#screen-menu').evaluate((el) => el.classList.contains('is-active')));
+
   // --- Turn timer: 15s countdown then timeout loss (slowest, do last) ---
   const statsBefore = JSON.parse(await page.evaluate(() => localStorage.getItem('c4.stats.v1')));
   await start2p(15);
