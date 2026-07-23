@@ -1604,6 +1604,11 @@ function wire() {
   applyTheme(prefs.theme);
   applyEvalVisibility();
 
+  // Welcome entrance on first load (the menu is the initial screen).
+  if (!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) {
+    document.getElementById('screen-menu')?.classList.add('intro');
+  }
+
   $('#btn-mode-bot').addEventListener('click', () => openSetup('bot'));
   $('#btn-mode-2p').addEventListener('click', () => openSetup('2p'));
   $('#btn-start').addEventListener('click', startFromSetup);

@@ -155,14 +155,33 @@ body::before {
   position: absolute;
   width: var(--sz, 64px); height: var(--sz, 64px);
   border-radius: 50%;
-  opacity: 0.22;
-  /* soft luminous orb (not a dark-rimmed token) so it glows behind the title */
-  background: radial-gradient(circle at 50% 42%,
-    color-mix(in srgb, var(--hc) 85%, white) 0%,
-    var(--hc) 52%,
-    color-mix(in srgb, var(--hc) 60%, transparent) 100%);
-  box-shadow: 0 0 34px 8px color-mix(in srgb, var(--hc) 55%, transparent);
+  opacity: 0.5;
+  /* the same flat neon "token" as the in-game discs (ridge + dimple below) */
+  background: radial-gradient(circle at 50% 34%,
+    color-mix(in srgb, var(--hc) 78%, white) 0%,
+    var(--hc) 46%,
+    color-mix(in srgb, var(--hc) 82%, black) 100%);
+  box-shadow:
+    0 0 22px 4px color-mix(in srgb, var(--hc) 50%, transparent),
+    inset 0 0 0 2px color-mix(in srgb, var(--hc) 55%, black),
+    inset 0 2px 3px rgba(255, 255, 255, 0.18),
+    inset 0 -3px 5px rgba(0, 0, 0, 0.3);
   animation: hero-drift var(--dur, 16s) ease-in-out infinite alternate;
+}
+.hero-disc::before {
+  content: "";
+  position: absolute;
+  inset: 17%;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--hc) 45%, black), 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+.hero-disc::after {
+  content: "";
+  position: absolute;
+  inset: 38%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--hc) 70%, white), color-mix(in srgb, var(--hc) 88%, black));
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 @keyframes hero-drift {
   from { transform: translate(0, 0) rotate(0deg); }
@@ -174,6 +193,27 @@ body::before {
   to   { filter: drop-shadow(0 0 16px rgba(123, 92, 255, 0.55)); }
 }
 :root[data-theme="minimal"] .brand-title { animation: none; filter: none; }
+
+/* Welcome entrance — added once on first load. The two title words drop in like
+   falling discs, then the tagline, buttons and chips rise in, staggered. */
+#screen-menu.intro .brand-title span:first-child { animation: word-drop 0.6s cubic-bezier(0.2, 0.8, 0.3, 1.35) both; }
+#screen-menu.intro .brand-title span:last-child  { animation: word-drop 0.6s cubic-bezier(0.2, 0.8, 0.3, 1.35) 0.12s both; }
+#screen-menu.intro .brand-tag   { animation: fade-up 0.5s ease 0.34s both; }
+#screen-menu.intro .btn-mode    { animation: fade-up 0.55s ease both; }
+#screen-menu.intro .menu-actions .btn-mode:nth-of-type(1) { animation-delay: 0.36s; }
+#screen-menu.intro .menu-actions .btn-mode:nth-of-type(2) { animation-delay: 0.46s; }
+#screen-menu.intro .menu-footer { animation: fade-up 0.5s ease 0.58s both; }
+#screen-menu.intro #menu-hero   { animation: fade-in 1.3s ease both; }
+@keyframes word-drop {
+  0%   { opacity: 0; transform: translateY(-70px); }
+  70%  { opacity: 1; }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
 .brand {
   text-align: center;
@@ -190,8 +230,8 @@ body::before {
     0 0 12px rgba(255, 61, 127, 0.6),
     0 0 34px rgba(255, 61, 127, 0.35);
 }
-.brand-title span {
-  display: block;
+.brand-title span { display: block; } /* stack the two words; first inherits the pink title glow */
+.brand-title span:last-child {
   color: #fff;
   text-shadow:
     0 0 12px rgba(61, 215, 255, 0.65),
@@ -1074,7 +1114,7 @@ body::before {
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--disc) 40%, black);
 }
 :root[data-theme="minimal"] .brand-title { color: #1b2038; text-shadow: none; }
-:root[data-theme="minimal"] .brand-title span { color: #2b6fe6; text-shadow: none; }
+:root[data-theme="minimal"] .brand-title span:last-child { color: #2b6fe6; text-shadow: none; }
 :root[data-theme="minimal"] .btn-primary {
   border-color: rgba(43, 111, 230, 0.5);
   background: linear-gradient(135deg, rgba(43, 111, 230, 0.18), rgba(43, 111, 230, 0.1));
