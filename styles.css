@@ -4,7 +4,7 @@
 
 :root {
   color-scheme: dark; /* browser overscroll/backdrop surfaces render dark, not white */
-  --canvas: #06060f; /* solid base behind the fixed neon layer; matches its bottom colour per theme */
+  --canvas: #0d0d20; /* solid base behind the fixed neon layer; matches its bottom colour per theme */
   --bg-0: #06060f;
   --bg-1: #0a0a1f;
   --panel: rgba(255, 255, 255, 0.05);
@@ -78,11 +78,16 @@ body::before {
   height: 100lvh; /* modern fallback (before JS runs) */
   height: calc(var(--app-vh, 100lvh) + 8px); /* JS pins to viewport height; +8px over-covers the bottom edge */
   z-index: -2;
+  /* Neon glows anchored at BOTH the top and bottom (plus a big central purple)
+     so colour fills the whole height — no black band on tall screens. The base
+     linear is a deep indigo, not near-black. */
   background:
-    radial-gradient(52% 40% at 12% 0%, rgba(255, 61, 127, 0.40), transparent 62%),
-    radial-gradient(54% 42% at 90% 3%, rgba(61, 215, 255, 0.32), transparent 62%),
-    radial-gradient(85% 44% at 50% 100%, rgba(123, 92, 255, 0.42), transparent 68%),
-    linear-gradient(160deg, var(--bg-1), var(--bg-0));
+    radial-gradient(90% 55% at 12% 0%, rgba(255, 61, 127, 0.42), transparent 64%),
+    radial-gradient(90% 55% at 90% 4%, rgba(61, 215, 255, 0.34), transparent 64%),
+    radial-gradient(120% 62% at 50% 100%, rgba(123, 92, 255, 0.46), transparent 70%),
+    radial-gradient(90% 52% at 6% 98%, rgba(255, 61, 127, 0.24), transparent 62%),
+    radial-gradient(90% 52% at 96% 95%, rgba(61, 215, 255, 0.22), transparent 62%),
+    linear-gradient(160deg, #15152f, #0d0d20);
   filter: saturate(1.1);
   transform-origin: center;
   animation: bgdrift 18s ease-in-out infinite alternate;
@@ -1033,11 +1038,13 @@ body::before {
    a few components. Disc colours stay player-chosen in every theme. */
 
 /* Classic: deep-blue board, subdued glow */
-:root[data-theme="classic"] { --accent: #2b6fe6; --canvas: #0a1226; } /* matches the classic body::before bottom */
+:root[data-theme="classic"] { --accent: #2b6fe6; --canvas: #0b1730; } /* matches the classic body::before bottom */
 :root[data-theme="classic"] body::before {
+  /* blue glow top and bottom so the whole height stays deep blue, never black */
   background:
-    radial-gradient(60% 45% at 50% 0%, rgba(60, 120, 230, 0.28), transparent 60%),
-    linear-gradient(160deg, #0f1d3e, #0a1226);
+    radial-gradient(85% 55% at 50% 0%, rgba(60, 120, 230, 0.30), transparent 62%),
+    radial-gradient(110% 60% at 50% 100%, rgba(43, 111, 230, 0.30), transparent 70%),
+    linear-gradient(160deg, #13244d, #0b1730);
   animation: none;
 }
 :root[data-theme="classic"] .board {
