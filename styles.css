@@ -4,7 +4,17 @@
 
 :root {
   color-scheme: dark; /* browser overscroll/backdrop surfaces render dark, not white */
-  --canvas: #0d0d20; /* solid base behind the fixed neon layer; matches its bottom colour per theme */
+  /* The themed background stack, painted by BOTH the html canvas and the fixed
+     body::before layer so a sliver of canvas can never read as a different
+     colour. Per-theme overrides redefine this, not body::before's background. */
+  --bg-layers:
+    radial-gradient(90% 55% at 12% 0%, rgba(255, 61, 127, 0.42), transparent 64%),
+    radial-gradient(90% 55% at 90% 4%, rgba(61, 215, 255, 0.34), transparent 64%),
+    radial-gradient(120% 62% at 50% 100%, rgba(123, 92, 255, 0.46), transparent 70%),
+    radial-gradient(90% 52% at 6% 98%, rgba(255, 61, 127, 0.24), transparent 62%),
+    radial-gradient(90% 52% at 96% 95%, rgba(61, 215, 255, 0.22), transparent 62%),
+    linear-gradient(160deg, #15152f, #0d0d20);
+  --canvas: #3f3276; /* opaque base beyond the gradient box — the layer's lit bottom colour */
   --bg-0: #06060f;
   --bg-1: #0a0a1f;
   --panel: rgba(255, 255, 255, 0.05);
@@ -47,47 +57,43 @@ html, body {
 }
 /* Base fill lives on <html> only (the canvas). If <body> also had an opaque
    background it would paint over the fixed z-index:-1 layers (neon + danger
-   tint) below it, hiding them. A soft bottom-centre glow keeps the very bottom
-   of the page from ever reading as a flat black "cut" (incl. overscroll). */
+   tint) below it, hiding them. */
 html {
-  /* Single solid canvas that matches the fixed neon layer's bottom colour for the
-     active theme (--canvas). Because the two agree, any sliver the fixed layer
-     doesn't cover — the bottom safe-area, overscroll, a transition frame — blends
-     in seamlessly instead of showing a different colour. The gradient/neon look
-     lives entirely on body::before. */
-  background: var(--canvas);
+  /* The canvas paints the *same* gradient stack as the fixed neon layer
+     (--bg-layers, themed below), so any sliver that layer doesn't cover — the
+     bottom safe-area on an iOS standalone PWA, overscroll, a first-paint frame —
+     is pixel-identical instead of showing a different colour. A flat colour can
+     never do this: the neon layer's bottom edge is lit by bottom-anchored
+     radial glows, so it varies horizontally (e.g. Classic runs #0c2048 at the
+     edges to #12316c at the centre) and no single value matches across the width.
+     `no-repeat` keeps the gradients from tiling past the root box; --canvas is
+     the opaque base for anything beyond it. */
+  background-color: var(--canvas);
+  background-image: var(--bg-layers);
+  background-repeat: no-repeat;
 }
 body { background: transparent; }
 
-/* Animated neon background. Height is pinned to the real viewport height, which
-   JS keeps in --app-vh (= window.innerHeight, updated on load/resize). Pure CSS
-   viewport units (100lvh) can resolve too short on an iOS *standalone* PWA's
-   first paint, and because the drift is a composited transform: scale() it can
-   never correct a layout-height error — so the layer stayed short (a dark strip
-   at the bottom) until a screen change forced a reflow. The explicit px height
-   fixes it from the first paint. 100lvh/100vh remain as fallbacks before JS runs.
-   The drift is scale-only so it can never uncover the bottom edge. */
+/* Animated neon background. Sized with `inset: 0` rather than any height value:
+   a fixed box with top and bottom both pinned always fills the viewport by
+   layout, so there is nothing to measure and nothing to get wrong. Earlier
+   versions used 100lvh and then a JS-measured pixel height (--app-vh), and both
+   could come up short on an iOS *standalone* PWA — the layer stopped ~62pt above
+   the screen bottom, exposing the canvas colour as a dark band over the home
+   indicator. `min-height: 100lvh` is a belt on top of that brace: whichever of
+   the two resolves larger wins, so a short ICB can't shorten the layer either.
+   The drift is scale-only (≥ 1.02) so it can never uncover an edge. */
 body::before {
   content: "";
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  width: 100%;
-  height: 100vh; /* oldest fallback */
-  height: 100lvh; /* modern fallback (before JS runs) */
-  height: calc(var(--app-vh, 100lvh) + 8px); /* JS pins to viewport height; +8px over-covers the bottom edge */
+  inset: 0;
+  min-height: 100lvh;
   z-index: -2;
   /* Neon glows anchored at BOTH the top and bottom (plus a big central purple)
      so colour fills the whole height — no black band on tall screens. The base
-     linear is a deep indigo, not near-black. */
-  background:
-    radial-gradient(90% 55% at 12% 0%, rgba(255, 61, 127, 0.42), transparent 64%),
-    radial-gradient(90% 55% at 90% 4%, rgba(61, 215, 255, 0.34), transparent 64%),
-    radial-gradient(120% 62% at 50% 100%, rgba(123, 92, 255, 0.46), transparent 70%),
-    radial-gradient(90% 52% at 6% 98%, rgba(255, 61, 127, 0.24), transparent 62%),
-    radial-gradient(90% 52% at 96% 95%, rgba(61, 215, 255, 0.22), transparent 62%),
-    linear-gradient(160deg, #15152f, #0d0d20);
+     linear is a deep indigo, not near-black. Shared with the html canvas via
+     --bg-layers so the two can never disagree. */
+  background-image: var(--bg-layers);
   filter: saturate(1.1);
   transform-origin: center;
   animation: bgdrift 18s ease-in-out infinite alternate;
@@ -101,13 +107,8 @@ body::before {
    Opacity is set live by the turn timer once 2/3 of the time has elapsed. */
 #danger-tint {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  width: 100%;
-  height: 100vh; /* oldest fallback */
-  height: 100lvh; /* modern fallback (before JS runs) */
-  height: calc(var(--app-vh, 100lvh) + 8px); /* match the neon layer's over-cover */
+  inset: 0; /* same measurement-free sizing as the neon layer */
+  min-height: 100lvh;
   z-index: -1;
   pointer-events: none;
   opacity: var(--danger, 0); /* driven by the timer; visibility comes from opacity alone */
@@ -1506,15 +1507,16 @@ body::before {
    a few components. Disc colours stay player-chosen in every theme. */
 
 /* Classic: deep-blue board, subdued glow */
-:root[data-theme="classic"] { --accent: #2b6fe6; --canvas: #0b1730; } /* matches the classic body::before bottom */
-:root[data-theme="classic"] body::before {
+:root[data-theme="classic"] {
+  --accent: #2b6fe6;
+  --canvas: #0f2756; /* the lit bottom of the stack below, averaged across the width */
   /* blue glow top and bottom so the whole height stays deep blue, never black */
-  background:
+  --bg-layers:
     radial-gradient(85% 55% at 50% 0%, rgba(60, 120, 230, 0.30), transparent 62%),
     radial-gradient(110% 60% at 50% 100%, rgba(43, 111, 230, 0.30), transparent 70%),
     linear-gradient(160deg, #13244d, #0b1730);
-  animation: none;
 }
+:root[data-theme="classic"] body::before { animation: none; }
 :root[data-theme="classic"] .board {
   /* Glossy moulded-plastic blue, like a real Connect Four cabinet: a sheen along
      the top, a solid blue body, a bright top rim and a deep shadowed base. */
@@ -1552,7 +1554,8 @@ body::before {
 /* Minimal: light, flat, soft */
 :root[data-theme="minimal"] {
   color-scheme: light; /* light theme → light browser surfaces */
-  --canvas: #e7ecf6; /* matches the minimal body::before bottom */
+  --canvas: #e7ecf6; /* matches the minimal bottom (this theme has no bottom glow) */
+  --bg-layers: linear-gradient(160deg, #f4f6fb, #e7ecf6);
   --bg-0: #eef1f7;
   --bg-1: #f7f9fc;
   --text: #1b2038;
@@ -1565,7 +1568,6 @@ body::before {
   --accent: #2b6fe6;
 }
 :root[data-theme="minimal"] body::before {
-  background: linear-gradient(160deg, #f4f6fb, #e7ecf6);
   filter: none;
   animation: none;
 }

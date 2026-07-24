@@ -2399,23 +2399,9 @@ function wire() {
 
 wire();
 
-// Keep the fixed neon / danger background layers (styles.css: body::before,
-// #danger-tint) pinned to the true viewport height via --app-vh. On an iOS
-// standalone PWA the CSS viewport units (100lvh) can resolve too short on the
-// very first paint, and the layers' drift animation is a composited
-// transform: scale() that can't correct a layout-height error — so the neon
-// stayed short (a dark strip at the bottom) until a screen change forced a
-// reflow. An explicit pixel height, refreshed on every viewport change, fixes
-// it from the first frame. max(innerHeight, clientHeight) never sizes shorter
-// than the layout viewport, so browser-mode coverage isn't regressed.
-function syncViewportHeight() {
-  const h = Math.max(window.innerHeight || 0, document.documentElement.clientHeight || 0);
-  if (h) document.documentElement.style.setProperty('--app-vh', h + 'px');
-}
-syncViewportHeight();
-['resize', 'orientationchange', 'load', 'pageshow'].forEach((evt) =>
-  window.addEventListener(evt, syncViewportHeight),
-);
-// iOS can settle the standalone viewport a beat after launch — catch that too.
-requestAnimationFrame(syncViewportHeight);
-setTimeout(syncViewportHeight, 300);
+// The fixed background layers (styles.css: body::before, #danger-tint) used to be
+// sized from a JS-measured pixel height (--app-vh) because CSS viewport units
+// could resolve short on an iOS standalone PWA's first paint. They now size
+// themselves with `inset: 0` + `min-height: 100lvh`, which is resolved by layout
+// against the viewport and re-resolves on every viewport change — so there is
+// nothing left for JS to measure or keep in sync.
