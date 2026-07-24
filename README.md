@@ -10,8 +10,9 @@ icon, works **offline**, and feels like a native app.
 ## Features
 
 - 🤖 **Vs Bot** — four difficulty levels (Easy / Medium / Hard / **Insane**). All purely
-  algorithmic minimax with alpha-beta look-ahead (no ML) — Insane searches deepest and is
-  near-unbeatable. A little **robot hand** hovers over the board on the bot's turn, slides to its
+  algorithmic minimax with alpha-beta look-ahead (no ML) — Insane searches deepest. From the
+  endgame on, **Hard and Insane hand the decision to the exact solver**, so once the position is
+  small enough to solve they play *perfectly* and simply cannot be outplayed. A little **robot hand** hovers over the board on the bot's turn, slides to its
   column and drops the disc with a synthesised servo click — and it gets **scarier as the difficulty
   climbs**: a friendly green helper chirping on Easy, an angry orange one on Hard, and on Insane a
   red-eyed, horned, fanged nightmare that drips, throws sparks off its claw and growls as it releases.
@@ -27,8 +28,12 @@ icon, works **offline**, and feels like a native app.
   (negamax + alpha-beta + transposition table) — Connect Four is a solved game, so once the tree is
   small enough it reports the true result under perfect play. A **💡 Best move** button highlights a
   strong column for whoever's turn it is. All offline, no ML.
-- 🔁 **Replay** — every finished game is saved so you can step, scrub, or auto-play through it, with
-  the **win-% bar** and a **💡 Best move** hint available at every paused position.
+- 🔁 **Replay + 🔍 Game review** — every finished game is saved so you can step, scrub, or auto-play
+  through it, with the **win-% bar** and a **💡 Best move** hint at every paused position. On top of
+  that, each game is **analysed move by move**: a win-% **curve** across the whole game, an
+  **accuracy score** per player, and tappable chips for the moves that gave ground ("Move 12 ·
+  Player 2 −48%") — tap one to jump to just before it and see what should have been played instead.
+  Drag the curve to scrub. All computed on-device by the same solver, no ML, no network.
 - 🏅 **Match series** — play a single game, **Best of 3**, or **Best of 5**, with series
   pips and a match-winner celebration.
 - 🔄 **Pop-Out variant** — the official twist: on your turn you can drop, *or* pop one of
@@ -105,6 +110,7 @@ js/engine.js          Pure Connect Four rules (drop, win/draw detection)
 js/bot.js             Bot opponent (easy/medium heuristics + hard minimax) + win-% estimate
 js/solver.js          Exact bitboard solver (negamax + alpha-beta + TT) — eval bar + puzzle generation
 js/stats.js           Pure stats aggregation (totals, per-difficulty, streaks)
+js/review.js          Pure game review (blunder/mistake flags + accuracy scores)
 js/puzzles.js         Puzzle set (solver-generated static data; see tools/gen_puzzles.mjs)
 js/app.js             UI controller: rendering, sound, haptics, scoreboard, persistence
 manifest.webmanifest  PWA metadata (name, icons, standalone display)
@@ -116,7 +122,7 @@ tools/                Icon generator + test scripts
 ## Development & tests
 
 ```bash
-npm test                     # engine + bot + solver + puzzle unit tests (Node, no deps)
+npm test                     # engine + bot + solver + puzzle + review tests (Node, no deps)
 node tools/gen_puzzles.mjs   # regenerate js/puzzles.js from the solver (dev-only)
 python3 tools/make_icons.py  # regenerate the app icons
 ```

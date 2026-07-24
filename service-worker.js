@@ -5,7 +5,7 @@
 // serving the snapshot it captured on the first visit, so pushes never showed
 // up. Now we always try the network first, refresh the cache with what we get,
 // and only fall back to the cache when offline.
-const CACHE = 'connect-four-neon-v4';
+const CACHE = 'connect-four-neon-v5';
 const ASSETS = [
   './',
   './index.html',
@@ -15,6 +15,7 @@ const ASSETS = [
   './js/bot.js',
   './js/solver.js',
   './js/stats.js',
+  './js/review.js',
   './js/puzzles.js',
   './manifest.webmanifest',
   './icons/icon-192.png',

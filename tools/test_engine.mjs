@@ -467,6 +467,63 @@ console.log('Bot: winChance is exact in the endgame');
   ok('endgame bar still sums to 100', !mismatch);
 }
 
+console.log('Bot: solver-backed endgame move choice');
+{
+  // Once a position is solvable, hard/insane must pick a game-theoretically
+  // optimal column. Ground truth: solve every child and keep the columns that
+  // achieve the best value from the mover's side.
+  let checked = 0;
+  let insaneOptimal = true;
+  let hardOptimal = true;
+  let deterministic = true;
+  let sawDecisive = false;
+
+  for (let i = 0; i < 30000 && checked < 30; i++) {
+    const b = randomPos(24 + Math.floor(Math.random() * 8));
+    if (!b || discCount(b) < 24) continue;
+    const mover = discCount(b) % 2 === 0 ? P1 : P2; // randomPos starts with P1 and alternates
+
+    const vals = new Map();
+    let solvable = true;
+    for (const c of legalMoves(b)) {
+      const child = cloneBoard(b);
+      const l = dropDisc(child, c, mover);
+      if (checkWin(child, l.row, l.col)) { vals.set(c, Infinity); continue; } // wins now
+      const s = solveBoard(child, other(mover), { budget: 200000 });
+      if (!s) { solvable = false; break; }
+      vals.set(c, -s.score); // solver scores the side to move; flip to the mover's view
+    }
+    if (!solvable || vals.size === 0) continue;
+
+    const best = Math.max(...vals.values());
+    const optimal = [...vals.entries()].filter(([, v]) => v === best).map(([c]) => c);
+    const pick = chooseMove(cloneBoard(b), mover, 'insane');
+    if (!optimal.includes(pick)) insaneOptimal = false;
+    if (chooseMove(cloneBoard(b), mover, 'insane') !== pick) deterministic = false;
+    if (!optimal.includes(chooseMove(cloneBoard(b), mover, 'hard'))) hardOptimal = false;
+    if (best !== 0) sawDecisive = true;
+    checked++;
+  }
+
+  ok('insane picks a provably optimal column in the endgame', insaneOptimal && checked >= 20);
+  ok('hard gets the same exact treatment', hardOptimal);
+  ok('the endgame choice is deterministic', deterministic);
+  ok('the scan covered decided positions, not just draws', sawDecisive);
+}
+{
+  // A position the solver can't reach yet must fall back cleanly to minimax and
+  // still return a legal column (the gate is 24 discs).
+  let fallbackOK = true;
+  for (let i = 0; i < 200; i++) {
+    const b = randomPos(6 + Math.floor(Math.random() * 6));
+    if (!b) continue;
+    const mover = discCount(b) % 2 === 0 ? P1 : P2;
+    const pick = chooseMove(cloneBoard(b), mover, 'insane');
+    if (!legalMoves(b).includes(pick)) { fallbackOK = false; break; }
+  }
+  ok('below the gate it still returns a legal column', fallbackOK);
+}
+
 console.log('');
 console.log(`Results: ${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

@@ -20,6 +20,7 @@ import {
 } from './engine.js';
 import { chooseMove, winChance } from './bot.js';
 import { emptyHistory, recordGame, summarize, winRate, DIFFICULTIES, DIFFICULTY_LABEL } from './stats.js';
+import { summarizeReview } from './review.js';
 import { PUZZLES } from './puzzles.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -396,6 +397,18 @@ const rpHintBtn = $('#rp-hint');
 const replayEvalP1 = $('#replay-eval-p1');
 const replayEvalP2 = $('#replay-eval-p2');
 const replayEvalLabel = $('#replay-eval-label');
+
+const reviewEl = $('#review');
+const reviewProgress = $('#review-progress');
+const reviewProgressLabel = $('#review-progress-label');
+const reviewProgressFill = $('#review-progress-fill');
+const reviewGraph = $('#review-graph');
+const reviewArea = $('#review-area-p1');
+const reviewLine = $('#review-line');
+const reviewDots = $('#review-dots');
+const reviewMarker = $('#review-marker');
+const reviewSummary = $('#review-summary');
+const reviewMoments = $('#review-moments');
 
 const puzzleGridEl = $('#puzzle-grid');
 const puzzlesCountEl = $('#puzzles-count');
@@ -1103,6 +1116,7 @@ function closeOverlay() {
 function goMenu() {
   stopTurnTimer();
   stopReplayPlay();
+  resetReview(); // cancel any in-flight analysis
   clearHint();
   hideBotRobot();
   game.active = false;
@@ -1445,7 +1459,7 @@ function showHint() {
 
 // ---------------------------------------------------------------- replay
 
-const replay = { data: null, index: 0, playing: false, timer: null, boards: [] };
+const replay = { data: null, index: 0, playing: false, timer: null, boards: [], evals: [], review: null };
 
 function recordLastGame(winner, cells, reason) {
   lastGame = {
@@ -1549,6 +1563,7 @@ function renderReplayBoard(index, animate) {
   }
   renderReplayEval(index);
   updateReplayControls();
+  updateReviewMarker();
 }
 
 // Player to move at replay position `index` (moves alternate from the starter).
@@ -1556,22 +1571,192 @@ function replayMoverAt(index) {
   return index % 2 === 0 ? replay.data.startingPlayer : other(replay.data.startingPlayer);
 }
 
-// Win-% bar for the replayed position. At the final position it shows the actual
-// result; otherwise a turn-aware estimate for whoever is to move.
+// Player 1's win chance at replay position `index`. The final position reports
+// the actual result rather than an estimate.
+function evalAtReplayIndex(index) {
+  const d = replay.data;
+  if (index >= d.moves.length) {
+    if (d.winner === 'draw') return 50;
+    return d.winner === P1 ? 100 : 0;
+  }
+  return winChance(replay.boards[index], replayMoverAt(index), 6)[P1];
+}
+
+// Win-% bar for the replayed position. Reuses the review's cached number when
+// the analysis has already reached this position (scrubbing stays instant).
 function renderReplayEval(index) {
   const d = replay.data;
-  let pct;
-  if (index >= d.moves.length) {
-    if (d.winner === 'draw') pct = { [P1]: 50, [P2]: 50 };
-    else pct = { [P1]: d.winner === P1 ? 100 : 0, [P2]: d.winner === P2 ? 100 : 0 };
-  } else {
-    pct = winChance(replay.boards[index], replayMoverAt(index), 6);
-  }
+  const cached = replay.evals[index];
+  const p1 = typeof cached === 'number' ? cached : evalAtReplayIndex(index);
+  const pct = { [P1]: p1, [P2]: 100 - p1 };
   replayEvalP1.style.width = `${pct[P1]}%`;
   replayEvalP2.style.width = `${pct[P2]}%`;
   replayEvalP1.style.background = d.colors[1];
   replayEvalP2.style.background = d.colors[2];
   replayEvalLabel.textContent = `${d.names[1]} ${pct[P1]}% · ${d.names[2]} ${pct[P2]}%`;
+}
+
+// ---------------------------------------------------------------- game review
+// Walks every position of the replayed game, records Player 1's win chance at
+// each, then draws the curve and flags the moves that gave ground. Each position
+// can cost the solver real time (~90ms once the endgame is solvable), so the
+// walk runs one position per timer tick instead of blocking, and a generation
+// counter cancels an in-flight analysis if the user leaves the screen.
+
+const GRAPH_W = 300; // must match the SVG viewBox in index.html
+const GRAPH_H = 72;
+const MAX_MOMENT_CHIPS = 6;
+let reviewGen = 0;
+
+function setReviewProgress(frac, running) {
+  if (!reviewProgress) return;
+  reviewProgress.hidden = !running;
+  const pct = Math.round(frac * 100);
+  if (reviewProgressFill) reviewProgressFill.style.width = `${pct}%`;
+  if (reviewProgressLabel) reviewProgressLabel.textContent = `Analysing… ${pct}%`;
+}
+
+// Cancel any running analysis and clear the rendered review.
+function resetReview() {
+  reviewGen++;
+  replay.evals = [];
+  replay.review = null;
+  if (reviewArea) reviewArea.setAttribute('d', '');
+  if (reviewLine) reviewLine.setAttribute('d', '');
+  if (reviewDots) reviewDots.innerHTML = '';
+  if (reviewSummary) reviewSummary.textContent = '';
+  if (reviewMoments) reviewMoments.innerHTML = '';
+  setReviewProgress(0, false);
+}
+
+function analyseReplay() {
+  resetReview();
+  const gen = reviewGen;
+  if (!replay.data) return;
+  const n = replay.boards.length; // positions = moves + 1
+  if (reviewArea) reviewArea.style.fill = replay.data.colors[1];
+  if (reviewGraph) reviewGraph.style.background = replay.data.colors[2];
+  setReviewProgress(0, true);
+
+  const step = (i) => {
+    if (gen !== reviewGen) return; // left the screen mid-analysis
+    if (i >= n) {
+      setReviewProgress(1, false);
+      replay.review = summarizeReview(replay.evals, replay.data.startingPlayer);
+      renderReviewGraph();
+      renderReviewSummary();
+      renderReviewMoments();
+      return;
+    }
+    replay.evals[i] = evalAtReplayIndex(i);
+    setReviewProgress((i + 1) / n, true);
+    renderReviewGraph(); // fills in as it goes
+    setTimeout(() => step(i + 1), 0);
+  };
+  step(0);
+}
+
+const graphX = (i, n) => (n <= 1 ? 0 : (i / (n - 1)) * GRAPH_W);
+const graphY = (p1pct) => GRAPH_H - (p1pct / 100) * GRAPH_H;
+
+function renderReviewGraph() {
+  if (!reviewLine || !replay.data) return;
+  const n = replay.boards.length;
+  const pts = [];
+  for (let i = 0; i < replay.evals.length; i++) {
+    if (typeof replay.evals[i] !== 'number') break; // only the analysed prefix
+    pts.push([graphX(i, n), graphY(replay.evals[i])]);
+  }
+  if (pts.length === 0) return;
+  const line = pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ');
+  reviewLine.setAttribute('d', line);
+  // Fill under the curve in P1's colour; the SVG's own background is P2's, so
+  // the split reads as "who owns how much of the position".
+  const lastX = pts[pts.length - 1][0].toFixed(1);
+  reviewArea.setAttribute('d', `${line} L${lastX} ${GRAPH_H} L${pts[0][0].toFixed(1)} ${GRAPH_H} Z`);
+
+  if (reviewDots) {
+    reviewDots.innerHTML = '';
+    const moments = replay.review ? replay.review.moments : [];
+    for (const m of moments) {
+      const after = m.index + 1;
+      if (typeof replay.evals[after] !== 'number') continue;
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', graphX(after, n).toFixed(1));
+      dot.setAttribute('cy', graphY(replay.evals[after]).toFixed(1));
+      dot.setAttribute('r', '3.5');
+      dot.setAttribute('class', `review-dot is-${m.kind}`);
+      reviewDots.appendChild(dot);
+    }
+  }
+  updateReviewMarker();
+}
+
+function updateReviewMarker() {
+  if (!reviewMarker || !replay.data) return;
+  const x = graphX(replay.index, replay.boards.length).toFixed(1);
+  reviewMarker.setAttribute('x1', x);
+  reviewMarker.setAttribute('x2', x);
+}
+
+function renderReviewSummary() {
+  if (!reviewSummary || !replay.review) return;
+  const d = replay.data;
+  const r = replay.review;
+  reviewSummary.innerHTML = '';
+  for (const p of [1, 2]) {
+    const row = document.createElement('span');
+    row.className = 'review-player';
+    const dot = document.createElement('i');
+    dot.className = 'review-swatch';
+    dot.style.background = d.colors[p];
+    const flaws = r.counts[p].blunders + r.counts[p].mistakes;
+    const detail = flaws === 0
+      ? 'no slips'
+      : `${r.counts[p].blunders} blunder${r.counts[p].blunders === 1 ? '' : 's'}, ${r.counts[p].mistakes} mistake${r.counts[p].mistakes === 1 ? '' : 's'}`;
+    row.appendChild(dot);
+    row.appendChild(document.createTextNode(`${d.names[p]} ${r.accuracy[p]}% accuracy · ${detail}`));
+    reviewSummary.appendChild(row);
+  }
+}
+
+function renderReviewMoments() {
+  if (!reviewMoments || !replay.review) return;
+  const d = replay.data;
+  reviewMoments.innerHTML = '';
+  const moments = replay.review.moments.slice(0, MAX_MOMENT_CHIPS);
+  if (moments.length === 0) {
+    const clean = document.createElement('p');
+    clean.className = 'review-clean';
+    clean.textContent = 'No big mistakes — a clean game.';
+    reviewMoments.appendChild(clean);
+    return;
+  }
+  for (const m of moments) {
+    const chip = document.createElement('button');
+    chip.className = `review-chip is-${m.kind}`;
+    chip.dataset.index = String(m.index);
+    chip.textContent = `Move ${m.moveNo} · ${d.names[m.mover]} −${m.loss}%`;
+    reviewMoments.appendChild(chip);
+  }
+}
+
+// Tapping a flagged move jumps to the position *before* it and shows what should
+// have been played instead.
+function openReviewMoment(index) {
+  stopReplayPlay();
+  replayStepTo(index, false);
+  showReplayHint();
+}
+
+// Scrubbing the graph seeks the replay.
+function seekFromGraph(clientX) {
+  if (!reviewGraph || !replay.data) return;
+  const rect = reviewGraph.getBoundingClientRect();
+  if (rect.width === 0) return;
+  const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  stopReplayPlay();
+  replayStepTo(Math.round(frac * replay.data.moves.length), false);
 }
 
 function clearReplayHint() {
@@ -1615,6 +1800,7 @@ function enterReplay(data) {
   replayCaption.textContent = replayCaptionText(data);
   renderReplayBoard(0, false);
   showScreen('screen-replay', 'fwd');
+  analyseReplay();
 }
 
 function replayStepTo(index, animateForwardOne) {
@@ -2073,6 +2259,28 @@ function wire() {
   $('#rp-end').addEventListener('click', () => { stopReplayPlay(); replayStepTo(replay.data.moves.length, false); });
   if (rpHintBtn) rpHintBtn.addEventListener('click', showReplayHint);
   updateReplayLastChip();
+
+  // Game review: tap a flagged move to jump there, or scrub the curve to seek.
+  if (reviewMoments) {
+    reviewMoments.addEventListener('click', (e) => {
+      const chip = e.target.closest('.review-chip');
+      if (chip) openReviewMoment(Number(chip.dataset.index));
+    });
+  }
+  if (reviewGraph) {
+    let scrubbing = false;
+    reviewGraph.addEventListener('pointerdown', (e) => {
+      scrubbing = true;
+      reviewGraph.setPointerCapture(e.pointerId);
+      seekFromGraph(e.clientX);
+    });
+    reviewGraph.addEventListener('pointermove', (e) => {
+      if (scrubbing) seekFromGraph(e.clientX);
+    });
+    const endScrub = () => { scrubbing = false; };
+    reviewGraph.addEventListener('pointerup', endScrub);
+    reviewGraph.addEventListener('pointercancel', endScrub);
+  }
 
   // Puzzles: list navigation + play controls + board input.
   puzzleGridEl.addEventListener('click', (e) => {

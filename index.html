@@ -243,15 +243,34 @@
       </div>
     </section>
 
-    <!-- ================= REPLAY ================= -->
-    <section id="screen-replay" class="screen" aria-label="Replay">
+    <!-- ================= REPLAY / GAME REVIEW ================= -->
+    <section id="screen-replay" class="screen" aria-label="Game review">
       <header class="topbar">
         <button class="icon-btn" data-nav="menu" aria-label="Back to menu"><span data-icon="back"></span></button>
-        <h2 class="topbar-title">Replay</h2>
+        <h2 class="topbar-title">Game review</h2>
         <span class="icon-btn-spacer"></span>
       </header>
 
       <p class="replay-caption" id="replay-caption"></p>
+
+      <!-- Post-game analysis: win-% curve across the whole game, an accuracy
+           summary, and tappable chips for the moves that lost ground. -->
+      <div class="review" id="review">
+        <div class="review-progress" id="review-progress">
+          <span class="review-progress-label" id="review-progress-label">Analysing…</span>
+          <span class="review-progress-track"><i id="review-progress-fill"></i></span>
+        </div>
+        <svg class="review-graph" id="review-graph" viewBox="0 0 300 72" preserveAspectRatio="none"
+             role="img" aria-label="Win chance across the game">
+          <path id="review-area-p1" class="review-area" d=""></path>
+          <line class="review-mid" x1="0" y1="36" x2="300" y2="36"></line>
+          <path id="review-line" class="review-line" d=""></path>
+          <g id="review-dots"></g>
+          <line id="review-marker" class="review-marker" x1="0" y1="0" x2="0" y2="72"></line>
+        </svg>
+        <p class="review-summary" id="review-summary"></p>
+        <div class="review-moments" id="review-moments"></div>
+      </div>
 
       <div class="eval is-on" id="replay-eval" aria-label="Win chance">
         <div class="eval-bar">

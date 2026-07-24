@@ -4,6 +4,8 @@
 //   medium – always wins/blocks when possible, avoids handing the opponent a win, plays the centre.
 //   hard   – minimax with alpha-beta pruning + a positional heuristic (genuinely tough).
 //   insane – the same minimax, searched deeper (near-unbeatable).
+// Both hard and insane hand the decision to the exact bitboard solver once the
+// position is small enough to solve, so neither errs in the endgame.
 // Also exposes winChance(): an engine estimate of each side's chance to win, used by the eval bar.
 
 import {
@@ -293,8 +295,50 @@ export function chooseMove(board, player, difficulty = 'medium') {
     return randomChoice(pool);
   }
 
-  // hard / insane — same minimax, deeper for insane
+  // hard / insane — minimax, except once the position is small enough for the
+  // exact solver to pick the move, at which point the bot stops erring at all.
+  if (countDiscs(board) >= SOLVE_PICK_MIN_DISCS) {
+    const exact = bestSolvedMove(board, player);
+    if (exact !== null) return exact;
+  }
   return bestMinimaxMove(board, player, difficulty === 'insane' ? INSANE_DEPTH : HARD_DEPTH);
+}
+
+// Gate for using the exact solver to *choose* a move rather than just to rate a
+// position. It's higher than SOLVE_MIN_DISCS because choosing means solving one
+// child per legal column — up to 7 solves — and the whole decision has to fit
+// inside the bot's think delay.
+const SOLVE_PICK_MIN_DISCS = 24;
+
+/**
+ * The game-theoretically best column for `player`, or null when the position is
+ * out of the solver's reach. If *any* child exceeds the node budget the whole
+ * attempt is abandoned (returns null) rather than mixing exact scores with
+ * heuristic ones, which would be worse than using either alone.
+ *
+ * Columns are tried centre-out and ties keep the first seen, so the choice is
+ * deterministic and centre-preferring — the same board always yields the same move.
+ */
+function bestSolvedMove(board, player) {
+  const opp = other(player);
+  let best = null;
+  let bestScore = -Infinity;
+  for (const c of orderedMoves(board)) {
+    const b = cloneBoard(board);
+    const landing = dropDisc(b, c, player);
+    if (!landing) continue;
+    if (checkWin(b, landing.row, landing.col)) return c; // wins now — nothing beats it
+    const solved = solveBoard(b, opp, { budget: SOLVE_BUDGET });
+    if (!solved) return null; // budget hit — fall back to minimax for the whole decision
+    // solveBoard scores from the side to move (the opponent here), so negate to
+    // get our view: higher = a faster forced win, or a slower forced loss.
+    const score = -solved.score;
+    if (score > bestScore) {
+      bestScore = score;
+      best = c;
+    }
+  }
+  return best;
 }
 
 // Gate + node budget for the exact solver used by winChance. Once at least

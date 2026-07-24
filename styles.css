@@ -907,6 +907,77 @@ body::before {
 .replay-actions .btn { min-width: 160px; text-align: center; }
 .replay-actions .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* ---------------- Game review ---------------- */
+/* The win-% curve across the whole game, an accuracy summary, and chips for the
+   moves that gave ground. JS paints the fill/background from the player colours. */
+.review { display: flex; flex-direction: column; gap: 8px; }
+
+.review-progress { display: flex; align-items: center; gap: 8px; }
+.review-progress[hidden] { display: none; }
+.review-progress-label { color: var(--text-dim); font-size: 0.76rem; white-space: nowrap; }
+.review-progress-track {
+  flex: 1;
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.review-progress-track > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+
+.review-graph {
+  width: 100%;
+  height: 64px;
+  display: block;
+  border-radius: 10px;
+  border: 1px solid var(--stroke);
+  overflow: hidden;
+  touch-action: none; /* scrubbing shouldn't scroll the screen */
+  cursor: pointer;
+}
+.review-area { opacity: 0.92; }
+.review-mid { stroke: rgba(0, 0, 0, 0.28); stroke-width: 1; stroke-dasharray: 2 4; vector-effect: non-scaling-stroke; }
+.review-line { fill: none; stroke: #fff; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.review-marker { stroke: #fff; stroke-width: 1.4; stroke-dasharray: 3 3; opacity: 0.85; vector-effect: non-scaling-stroke; }
+.review-dot { stroke: #fff; stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.review-dot.is-blunder { fill: #ff3b30; }
+.review-dot.is-mistake { fill: #ffb020; }
+
+.review-summary { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; margin: 0; }
+.review-player { display: inline-flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: 0.78rem; }
+.review-swatch { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+
+.review-moments { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.review-moments::-webkit-scrollbar { display: none; }
+.review-clean { margin: 0; color: var(--text-dim); font-size: 0.78rem; text-align: center; width: 100%; }
+.review-chip {
+  flex: none;
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.review-chip.is-blunder { border-color: rgba(255, 59, 48, 0.65); color: #ff8a82; }
+.review-chip.is-mistake { border-color: rgba(255, 176, 32, 0.6); color: #ffcc72; }
+.review-chip:active { transform: scale(0.96); }
+
+@media (prefers-reduced-motion: reduce) {
+  .review-progress-track > i { transition: none; }
+  .review-chip:active { transform: none; }
+}
+
 /* ---------------- Stats screen ---------------- */
 .stats-body { display: flex; flex-direction: column; gap: 16px; overflow-y: auto; padding-bottom: 8px; }
 .stat-cards { display: flex; gap: 10px; }

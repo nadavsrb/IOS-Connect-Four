@@ -318,6 +318,42 @@ try {
   ok('jump to end shows the full game', (await rpDiscs()) === 7);
   ok('winning four highlighted at the end', (await page.locator('#replay-board .disc.win').count()) === 4);
   await page.screenshot({ path: `${SHOTS}/11-replay.png` });
+
+  // --- Game review: the win-% curve, accuracy summary and flagged moves ---
+  // The analysis walks the game one position per tick, so wait for it to finish.
+  let analysed = false;
+  for (let i = 0; i < 80; i++) {
+    if (await page.locator('#review-progress[hidden]').count()) { analysed = true; break; }
+    await wait(250);
+  }
+  ok('game analysis completes and hides its progress bar', analysed);
+  ok('the win-% curve is drawn', ((await page.locator('#review-line').getAttribute('d')) || '').length > 10);
+  ok('the curve is filled under P1s share', ((await page.locator('#review-area-p1').getAttribute('d')) || '').includes('Z'));
+  const reviewText = await page.locator('#review-summary').innerText();
+  ok('both players get an accuracy score', (reviewText.match(/accuracy/g) || []).length === 2);
+  ok('a flagged move or a clean-game note is shown',
+    (await page.locator('.review-chip').count()) + (await page.locator('.review-clean').count()) > 0);
+  await page.screenshot({ path: `${SHOTS}/11b-review.png` });
+
+  // Scrubbing the graph seeks the replay.
+  const gbox = await page.locator('#review-graph').boundingBox();
+  await page.mouse.move(gbox.x + gbox.width * 0.45, gbox.y + gbox.height / 2);
+  await page.mouse.down();
+  await page.mouse.up();
+  await wait(300);
+  const scrubbed = await page.locator('#replay-counter').innerText();
+  ok('scrubbing the curve seeks the replay', /Move [1-6] \/ 7/.test(scrubbed));
+
+  // Tapping a flagged move jumps to just before it and shows the better move.
+  if ((await page.locator('.review-chip').count()) > 0) {
+    await page.locator('.review-chip').first().click();
+    await wait(400);
+    ok('tapping a flagged move suggests what to play instead',
+      (await page.locator('#replay-board .disc.ghost').count()) === 1);
+  } else {
+    ok('tapping a flagged move suggests what to play instead (no blunder in this game)', true);
+  }
+
   await page.locator('#screen-replay [data-nav="menu"]').click();
   await wait(200);
   ok('“Replay last” chip appears after a game', !(await page.locator('#btn-replay-last').evaluate((el) => el.hidden)));
