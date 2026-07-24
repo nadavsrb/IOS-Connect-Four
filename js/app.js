@@ -1677,7 +1677,7 @@ function decodePuzzleGrid(grid) {
   return board;
 }
 
-const tierBucket = (winIn) => Math.min(5, winIn);
+const tierBucket = (winIn) => Math.min(7, winIn);
 
 function renderPuzzleList() {
   const solved = new Set(puzzleProgress.solved);

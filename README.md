@@ -13,8 +13,8 @@ icon, works **offline**, and feels like a native app.
   algorithmic minimax with alpha-beta look-ahead (no ML) — Insane searches deepest and is
   near-unbeatable.
 - 👥 **Two Players** — pass-and-play on one phone.
-- 🧩 **Puzzles** — a ladder of **30+ "play and win" puzzles** that get progressively harder (Warm-up →
-  Grandmaster, *win in 1* up to *win in 5+*). You're red; find the move that forces a win against the
+- 🧩 **Puzzles** — a ladder of **50+ "play and win" puzzles** that get progressively harder (Warm-up →
+  **Mastermind**, *win in 1* up to *win in 7+*). You're red; find the move that forces a win against the
   opponent's best defence. Each has a single correct key move at every step — solve one to unlock the
   next, with progress saved on-device. Every puzzle was **generated and proven correct by the bitboard
   solver** offline (see `tools/gen_puzzles.mjs` / `tools/test_puzzles.mjs`), so the solutions are exact.

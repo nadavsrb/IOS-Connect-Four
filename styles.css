@@ -1108,6 +1108,8 @@ body::before {
 .puzzle-cell.tier-3 { --tier: #ffd23f; }
 .puzzle-cell.tier-4 { --tier: #ff9f3c; }
 .puzzle-cell.tier-5 { --tier: #ff3b6b; }
+.puzzle-cell.tier-6 { --tier: #b26bff; }
+.puzzle-cell.tier-7 { --tier: #ff2d6f; }
 
 .puzzle-cell.is-solved {
   border-color: rgba(124, 255, 107, 0.5);

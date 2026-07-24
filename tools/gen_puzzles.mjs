@@ -6,6 +6,10 @@
 // defence, your move, …) and buckets by mate depth. The committed js/puzzles.js
 // is static data; nothing here ships to the client. tools/test_puzzles.mjs
 // re-verifies every emitted puzzle from scratch.
+//
+// It is incremental: the existing js/puzzles.js is preserved verbatim (so ids —
+// and therefore saved progress — stay stable) and only a *harder* pack is topped
+// up to reach TOTAL. Delete js/puzzles.js to regenerate the whole set from empty.
 import {
   P1, P2, ROWS, COLS, EMPTY,
   createBoard, cloneBoard, dropDisc, checkWin, legalMoves, other,
@@ -13,11 +17,12 @@ import {
 import { solveBoard } from '../js/solver.js';
 import { writeFileSync } from 'node:fs';
 
-const BUDGET = 40_000_000; // big — offline, slowness is fine; abort → skip candidate
+const BUDGET = 60_000_000; // big — offline, slowness is fine; abort → skip candidate
 const solve = (b, p) => solveBoard(b, p, { budget: BUDGET });
 
 const gridStr = (b) => { let s = ''; for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) s += String(b[r][c]); return s; };
 const discCount = (b) => { let n = 0; for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (b[r][c] !== EMPTY) n++; return n; };
+const discsOf = (grid) => [...grid].filter((c) => c !== '0').length;
 const centreDist = (c) => Math.abs(3 - c);
 
 // Columns P1 can play at `b` (P1 to move) that force a win (immediate four, or a
@@ -78,70 +83,98 @@ function extractPV(board) {
 }
 
 // A random legal, non-terminal, P1-to-move position with an even disc count in
-// [22, 36] (kept full enough that every solver call is fast).
-function randomPosition() {
+// [lo, hi]. Fuller boards solve faster; a bit more open gives room for deep mates.
+function randomPositionIn(lo, hi) {
   const b = createBoard();
   let cur = P1;
-  const target = 22 + 2 * Math.floor(Math.random() * 8); // even 22..36
+  const span = Math.floor((hi - lo) / 2) + 1;
+  const target = lo + 2 * Math.floor(Math.random() * span);
   for (let i = 0; i < target; i++) {
     const moves = legalMoves(b);
     if (!moves.length) return null;
-    const c = moves[Math.floor(Math.random() * moves.length)];
-    const l = dropDisc(b, c, cur);
+    const l = dropDisc(b, moves[Math.floor(Math.random() * moves.length)], cur);
     if (checkWin(b, l.row, l.col)) return null; // already decided — unusable
     cur = other(cur);
   }
   return legalMoves(b).length ? b : null;
 }
 
-const TIER = { 1: 'Warm-up', 2: 'Sharp', 3: 'Tactician', 4: 'Sniper', 5: 'Grandmaster' };
-const TARGET = { 1: 8, 2: 8, 3: 7, 4: 7, 5: 6 }; // per bucket (5 = win-in-5-or-more)
-const bucketOf = (winIn) => (winIn >= 5 ? 5 : winIn);
-const buckets = { 1: [], 2: [], 3: [], 4: [], 5: [] };
-const need = () => Object.keys(TARGET).some((k) => buckets[k].length < TARGET[k]);
+// winIn → tier name (7+ all "Mastermind"). Finer at the top for the harder pack.
+const TIER = { 1: 'Warm-up', 2: 'Sharp', 3: 'Tactician', 4: 'Sniper', 5: 'Grandmaster', 6: 'Legend', 7: 'Mastermind' };
+const tierName = (winIn) => TIER[Math.min(7, winIn)];
 
-const seen = new Set();
-const TIME_MS = 1000 * 60 * 10;
+// --- Preserve the committed set verbatim (stable ids ⇒ stable saved progress). ---
+let base = [];
+try {
+  const mod = await import('../js/puzzles.js');
+  base = mod.PUZZLES.map((p) => ({ grid: p.grid, line: p.line.slice(), winIn: p.winIn, discs: discsOf(p.grid) }));
+} catch { base = []; }
+
+const seen = new Set(base.map((p) => p.grid));
+
+// Fresh run (no committed set): build the shallow ladder (win-in 1..5) first.
+if (base.length === 0) {
+  const SHALLOW = { 1: 8, 2: 8, 3: 7, 4: 7, 5: 3 };
+  const sb = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+  const needShallow = () => Object.keys(SHALLOW).some((k) => sb[k].length < SHALLOW[k]);
+  const ts = Date.now();
+  while (needShallow() && Date.now() - ts < 1000 * 60 * 6) {
+    const b = randomPositionIn(22, 36);
+    if (!b) continue;
+    const key = gridStr(b);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const root = solve(b, P1);
+    if (!root || root.score <= 0) continue;
+    const pv = extractPV(b);
+    if (!pv || pv.winIn > 5) continue;
+    if (sb[pv.winIn].length >= SHALLOW[pv.winIn]) continue;
+    sb[pv.winIn].push({ grid: key, line: pv.line, winIn: pv.winIn, discs: discCount(b) });
+  }
+  for (const k of [1, 2, 3, 4, 5]) { sb[k].sort((a, b) => b.discs - a.discs); for (const p of sb[k]) base.push(p); }
+}
+
+// --- Harder pack: append win-in-6+ puzzles until the set reaches TOTAL. ---
+const TOTAL = 56;
+const CAP = 12; // max new puzzles of any single winIn value, for variety
+const deep = [];
+const byWin = {};
+const TIME_MS = 1000 * 60 * 22;
 const t0 = Date.now();
 let tried = 0;
-
-while (need() && Date.now() - t0 < TIME_MS) {
+while (base.length + deep.length < TOTAL && Date.now() - t0 < TIME_MS) {
   tried++;
-  const b = randomPosition();
+  const b = randomPositionIn(20, 32);
   if (!b) continue;
   const key = gridStr(b);
   if (seen.has(key)) continue;
   seen.add(key);
   const root = solve(b, P1);
-  if (!root || root.score <= 0) continue; // not a forced win for P1
+  if (!root || root.score <= 0) continue;
   const pv = extractPV(b);
-  if (!pv) continue;
-  const bk = bucketOf(pv.winIn);
-  if (buckets[bk].length >= TARGET[bk]) continue;
-  buckets[bk].push({ grid: key, line: pv.line, winIn: pv.winIn, discs: discCount(b) });
-  console.error(`win-in-${pv.winIn} → bucket ${bk}: ${buckets[bk].length}/${TARGET[bk]} (tried ${tried}, ${((Date.now() - t0) / 1000).toFixed(0)}s)`);
+  if (!pv || pv.winIn < 6) continue; // the harder pack is win-in-6 and deeper
+  if ((byWin[pv.winIn] || 0) >= CAP) continue;
+  byWin[pv.winIn] = (byWin[pv.winIn] || 0) + 1;
+  deep.push({ grid: key, line: pv.line, winIn: pv.winIn, discs: discCount(b) });
+  console.error(`+win-in-${pv.winIn}: pack ${deep.length}/${TOTAL - base.length} (tried ${tried}, ${((Date.now() - t0) / 1000).toFixed(0)}s)`);
 }
 
-// Order easiest → hardest: by winIn, then fuller boards first within a tier.
-const all = [];
-for (const k of [1, 2, 3, 4, 5]) {
-  buckets[k].sort((a, b) => b.discs - a.discs);
-  for (const p of buckets[k]) all.push(p);
-}
+deep.sort((a, b) => (a.winIn - b.winIn) || (b.discs - a.discs));
+const all = [...base, ...deep];
 
-if (all.length < 30) {
-  console.error(`\nONLY ${all.length} puzzles — need ≥ 30. Distribution: ` +
-    [1, 2, 3, 4, 5].map((k) => `${k}:${buckets[k].length}`).join(' '));
+if (all.length < 50) {
+  console.error(`\nONLY ${all.length} puzzles (base ${base.length} + deep ${deep.length}). Deep dist: ${JSON.stringify(byWin)}`);
   process.exit(1);
 }
 
 const rows = all.map((p, i) =>
-  `  { id: ${i + 1}, tier: '${TIER[bucketOf(p.winIn)]}', winIn: ${p.winIn}, grid: '${p.grid}', line: [${p.line.join(', ')}] },`
+  `  { id: ${i + 1}, tier: '${tierName(p.winIn)}', winIn: ${p.winIn}, grid: '${p.grid}', line: [${p.line.join(', ')}] },`
 ).join('\n');
 
 const out = `// AUTO-GENERATED by tools/gen_puzzles.mjs — do not edit by hand.
 //
-// A progressive set of "you play and win" Connect Four puzzles, easiest first.
+// A progressive set of "you play and win" Connect Four puzzles, easiest first,
+// ending in a harder win-in-6+ pack (tiers Legend / Mastermind).
 // In every puzzle YOU are P1 (red) and it's your move; the opponent is P2 (yellow).
 //   grid  — 42 chars, row-major top→bottom, left→right; '0' empty, '1' you, '2' opponent.
 //   line  — the unique solution: [yourCol, oppReplyCol, yourCol, …]. The opponent's
@@ -154,7 +187,5 @@ ${rows}
 ];
 `;
 
-const path = new URL('../js/puzzles.js', import.meta.url);
-writeFileSync(path, out);
-console.error(`\nWrote ${all.length} puzzles to js/puzzles.js  (tiers ` +
-  [1, 2, 3, 4, 5].map((k) => `${TIER[k]}:${buckets[k].length}`).join(', ') + ')');
+writeFileSync(new URL('../js/puzzles.js', import.meta.url), out);
+console.error(`\nWrote ${all.length} puzzles (base ${base.length} + harder pack ${deep.length}). Pack depth dist: ${JSON.stringify(byWin)}`);

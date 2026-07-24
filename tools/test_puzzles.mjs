@@ -14,7 +14,7 @@ function ok(name, cond) {
 }
 
 const solve = (b, p) => solveBoard(b, p, { budget: 60_000_000 });
-const TIER_WIN = { 'Warm-up': 1, 'Sharp': 2, 'Tactician': 3, 'Sniper': 4, 'Grandmaster': 5 };
+const TIER_WIN = { 'Warm-up': 1, 'Sharp': 2, 'Tactician': 3, 'Sniper': 4, 'Grandmaster': 5, 'Legend': 6, 'Mastermind': 7 };
 
 // Grid → board; also returns per-cell counts. Grid is row-major top→bottom.
 function decode(grid) {
@@ -53,7 +53,8 @@ function anyFour(board) {
 
 console.log('Puzzles: data integrity + provable solutions');
 
-ok('at least 30 puzzles', PUZZLES.length >= 30);
+ok('at least 50 puzzles', PUZZLES.length >= 50);
+ok('has a harder win-in-6+ pack (20+)', PUZZLES.filter((p) => p.winIn >= 6).length >= 20);
 
 let prevWinIn = 0;
 let idsSequential = true;
@@ -62,7 +63,9 @@ let orderedByDifficulty = true;
 for (const pz of PUZZLES) {
   const tag = `#${pz.id} (${pz.tier}, win-in-${pz.winIn})`;
   if (pz.id !== PUZZLES.indexOf(pz) + 1) idsSequential = false;
-  if (pz.winIn < prevWinIn) orderedByDifficulty = false;
+  // Difficulty never drops as you go — except when entering the harder win-in-6+
+  // pack, which is appended after the base ladder and then ramps up again.
+  if (pz.winIn < prevWinIn && pz.winIn < 6) orderedByDifficulty = false;
   prevWinIn = pz.winIn;
 
   // Grid shape + legality.
@@ -86,7 +89,7 @@ for (const pz of PUZZLES) {
   ok(`${tag}: start is non-terminal`, !anyFour(board) && legalMoves(board).length > 0);
 
   // Tier label matches winIn (5 = 5-or-more).
-  ok(`${tag}: tier matches winIn`, TIER_WIN[pz.tier] === Math.min(5, pz.winIn));
+  ok(`${tag}: tier matches winIn`, TIER_WIN[pz.tier] === Math.min(7, pz.winIn));
   ok(`${tag}: winIn matches line length`, pz.winIn === Math.ceil(pz.line.length / 2));
 
   // Walk the solution: each P1 move must be the UNIQUE winning move; opponent
