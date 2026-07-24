@@ -214,6 +214,25 @@ const sound = (() => {
     tick() {
       tone(760, 0.045, 'sine', 0.045);
     },
+    // The bot's claw opening to release its disc. Deliberately in a different
+    // register from drop() so the two layer instead of muddying, and it gets
+    // heavier/nastier as the difficulty climbs.
+    robot(difficulty) {
+      if (difficulty === 'easy') {
+        tone(880, 0.05, 'square', 0.022, 0, 1180); // cheerful little chirp up
+        tone(1320, 0.05, 'sine', 0.016, 0.05);
+      } else if (difficulty === 'hard') {
+        tone(210, 0.13, 'sawtooth', 0.045, 0, 120); // heavier servo
+        noise(0.07, 0.03, 1500); // metal grind
+      } else if (difficulty === 'insane') {
+        tone(70, 0.34, 'sawtooth', 0.06, 0, 44); // low growl
+        tone(104, 0.3, 'square', 0.025, 0.01, 61); // detuned against it — beating/dread
+        noise(0.13, 0.04, 2600); // metallic screech
+      } else {
+        tone(430, 0.08, 'square', 0.028, 0, 300); // neutral servo click
+        noise(0.04, 0.018, 1800);
+      }
+    },
   };
 })();
 
@@ -836,6 +855,7 @@ function botDropAt(col, drop) {
   const slide = prefersReducedMotion() ? 0 : 340;
   setTimeout(() => {
     if (botRobot) botRobot.classList.add('dropping');
+    sound.robot(game.difficulty); // claw servo, synced to the release
     drop();
     setTimeout(() => { if (botRobot) botRobot.classList.remove('dropping'); }, 340);
   }, slide);
