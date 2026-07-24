@@ -1,0 +1,125 @@
+// Verifies the shipped puzzle set (js/puzzles.js) from scratch with the exact
+// solver — no trust in the generator. Run: `node tools/test_puzzles.mjs`.
+import {
+  P1, P2, ROWS, COLS, EMPTY,
+  createBoard, cloneBoard, dropDisc, checkWin, legalMoves,
+} from '../js/engine.js';
+import { solveBoard } from '../js/solver.js';
+import { PUZZLES } from '../js/puzzles.js';
+
+let passed = 0;
+let failed = 0;
+function ok(name, cond) {
+  if (cond) { passed++; } else { failed++; console.error(`  ✗ ${name}`); }
+}
+
+const solve = (b, p) => solveBoard(b, p, { budget: 60_000_000 });
+const TIER_WIN = { 'Warm-up': 1, 'Sharp': 2, 'Tactician': 3, 'Sniper': 4, 'Grandmaster': 5 };
+
+// Grid → board; also returns per-cell counts. Grid is row-major top→bottom.
+function decode(grid) {
+  const board = createBoard();
+  const counts = { 1: 0, 2: 0 };
+  for (let i = 0; i < grid.length; i++) {
+    const v = Number(grid[i]);
+    const r = Math.floor(i / COLS);
+    const c = i % COLS;
+    board[r][c] = v;
+    if (v === P1) counts[1]++;
+    else if (v === P2) counts[2]++;
+  }
+  return { board, counts };
+}
+
+// Columns P1 can play to force a win at `b` (P1 to move). Independent re-derivation.
+function winningMovesP1(b) {
+  const wins = [];
+  for (const c of legalMoves(b)) {
+    const child = cloneBoard(b);
+    const l = dropDisc(child, c, P1);
+    if (checkWin(child, l.row, l.col)) { wins.push(c); continue; }
+    const r = solve(child, P2);
+    if (r && r.score < 0) wins.push(c);
+  }
+  return wins;
+}
+
+function anyFour(board) {
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    if (board[r][c] !== EMPTY && checkWin(board, r, c)) return true;
+  }
+  return false;
+}
+
+console.log('Puzzles: data integrity + provable solutions');
+
+ok('at least 30 puzzles', PUZZLES.length >= 30);
+
+let prevWinIn = 0;
+let idsSequential = true;
+let orderedByDifficulty = true;
+
+for (const pz of PUZZLES) {
+  const tag = `#${pz.id} (${pz.tier}, win-in-${pz.winIn})`;
+  if (pz.id !== PUZZLES.indexOf(pz) + 1) idsSequential = false;
+  if (pz.winIn < prevWinIn) orderedByDifficulty = false;
+  prevWinIn = pz.winIn;
+
+  // Grid shape + legality.
+  const validChars = typeof pz.grid === 'string' && pz.grid.length === ROWS * COLS && /^[012]+$/.test(pz.grid);
+  ok(`${tag}: grid is 42 chars of 0/1/2`, validChars);
+  if (!validChars) continue;
+
+  const { board, counts } = decode(pz.grid);
+
+  // Gravity — no floating discs (a filled cell needs the one below it filled).
+  let gravityOK = true;
+  for (let r = 0; r < ROWS - 1; r++) for (let c = 0; c < COLS; c++) {
+    if (board[r][c] !== EMPTY && board[r + 1][c] === EMPTY) gravityOK = false;
+  }
+  ok(`${tag}: obeys gravity (no floating discs)`, gravityOK);
+
+  // P1 to move ⇒ equal disc counts.
+  ok(`${tag}: equal disc counts (P1 to move)`, counts[1] === counts[2]);
+
+  // Non-terminal start with moves available.
+  ok(`${tag}: start is non-terminal`, !anyFour(board) && legalMoves(board).length > 0);
+
+  // Tier label matches winIn (5 = 5-or-more).
+  ok(`${tag}: tier matches winIn`, TIER_WIN[pz.tier] === Math.min(5, pz.winIn));
+  ok(`${tag}: winIn matches line length`, pz.winIn === Math.ceil(pz.line.length / 2));
+
+  // Walk the solution: each P1 move must be the UNIQUE winning move; opponent
+  // replies must be legal; the final P1 move must complete four.
+  const b = cloneBoard(board);
+  let cur = P1;
+  let solutionOK = true;
+  let uniqueOK = true;
+  let repliesOK = true;
+  let reachedFour = false;
+  for (let step = 0; step < pz.line.length; step++) {
+    const col = pz.line[step];
+    if (!legalMoves(b).includes(col)) { solutionOK = false; break; }
+    if (cur === P1) {
+      const wins = winningMovesP1(b);
+      if (wins.length !== 1 || wins[0] !== col) uniqueOK = false;
+      const l = dropDisc(b, col, P1);
+      if (checkWin(b, l.row, l.col)) { reachedFour = true; }
+      cur = P2;
+    } else {
+      dropDisc(b, col, P2);
+      if (step === pz.line.length - 1) repliesOK = false; // line must end on P1's winning move
+      cur = P1;
+    }
+  }
+  ok(`${tag}: every move in the line is legal`, solutionOK);
+  ok(`${tag}: each of your moves is the ONLY winning move`, uniqueOK);
+  ok(`${tag}: the line ends on your four-in-a-row`, reachedFour && repliesOK);
+}
+
+ok('ids are sequential 1..N', idsSequential);
+ok('puzzles are ordered easiest → hardest', orderedByDifficulty);
+
+console.log('');
+console.log(`Results: ${passed} passed, ${failed} failed`);
+process.exit(failed === 0 ? 0 : 1);

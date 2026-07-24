@@ -20,6 +20,7 @@ import {
 } from './engine.js';
 import { chooseMove, winChance } from './bot.js';
 import { emptyHistory, recordGame, summarize, winRate, DIFFICULTIES, DIFFICULTY_LABEL } from './stats.js';
+import { PUZZLES } from './puzzles.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
@@ -58,6 +59,9 @@ const ICONS = {
   popout: S('<path d="M12 20V7"/><path d="M7 12l5-5 5 5"/><path d="M6 4h12"/>'),
   back: S('<path d="M15 5l-7 7 7 7"/>', 'fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"'),
   restart: S('<path d="M20 11.5a8 8 0 1 0-.8 4"/><path d="M20 4v5.5h-5.5"/>'),
+  puzzle: S('<path d="M10.2 4a1.8 1.8 0 0 1 3.6 0c0 .9 1 1.5 1.8 1.1.5-.2 1.1-.1 1.5.3l.5.5c.4.4.5 1 .3 1.5-.4.8.2 1.8 1.1 1.8a1.8 1.8 0 0 1 0 3.6c-.9 0-1.5 1-1.1 1.8.2.5.1 1.1-.3 1.5l-.5.5c-.4.4-1 .5-1.5.3-.8-.4-1.8.2-1.8 1.1a1.8 1.8 0 0 1-3.6 0c0-.9-1-1.5-1.8-1.1-.5.2-1.1.1-1.5-.3l-.5-.5c-.4-.4-.5-1-.3-1.5.4-.8-.2-1.8-1.1-1.8a1.8 1.8 0 0 1 0-3.6c.9 0 1.5-1 1.1-1.8-.2-.5-.1-1.1.3-1.5l.5-.5c.4-.4 1-.5 1.5-.3.8.4 1.8-.2 1.8-1.1z"/>'),
+  check: S('<path d="M5 12.5l4.2 4.5L19 6.5"/>', 'fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"'),
+  lock: S('<rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>'),
 };
 
 function installIcons(root = document) {
@@ -72,6 +76,7 @@ function installIcons(root = document) {
 const PREFS_KEY = 'c4.prefs.v1';
 const STATS_KEY = 'c4.stats.v1';
 const HISTORY_KEY = 'c4.history.v1';
+const PUZZLES_KEY = 'c4.puzzles.v1';
 
 const DEFAULT_PREFS = {
   p1name: '',
@@ -116,9 +121,14 @@ if (prefs.c1 === '#ff3d7f' && prefs.c2 === '#3dd7ff') {
 }
 let stats = loadJSON(STATS_KEY, { 1: 0, 2: 0, draws: 0 });
 let history = loadJSON(HISTORY_KEY, emptyHistory());
+// Puzzle progress: which ids are solved, and the highest-id puzzle unlocked so
+// far (puzzles unlock in order). Arrays survive the {...fallback} merge as-is.
+let puzzleProgress = loadJSON(PUZZLES_KEY, { solved: [], unlockedTo: 1 });
+if (!Array.isArray(puzzleProgress.solved)) puzzleProgress.solved = [];
 const savePrefs = () => saveJSON(PREFS_KEY, prefs);
 const saveStats = () => saveJSON(STATS_KEY, stats);
 const saveHistory = () => saveJSON(HISTORY_KEY, history);
+const savePuzzleProgress = () => saveJSON(PUZZLES_KEY, puzzleProgress);
 
 // ---------------------------------------------------------------- Web Audio
 
@@ -366,6 +376,19 @@ const rpHintBtn = $('#rp-hint');
 const replayEvalP1 = $('#replay-eval-p1');
 const replayEvalP2 = $('#replay-eval-p2');
 const replayEvalLabel = $('#replay-eval-label');
+
+const puzzleGridEl = $('#puzzle-grid');
+const puzzlesCountEl = $('#puzzles-count');
+const puzzlesProgressFill = $('#puzzles-progress-fill');
+const puzzleBoardEl = $('#puzzle-board');
+const puzzleTitleEl = $('#puzzle-title');
+const puzzleDotEl = $('#puzzle-prompt .puzzle-dot');
+const puzzlePromptText = $('#puzzle-prompt-text');
+const puzzleStatusEl = $('#puzzle-status');
+const pzHintBtn = $('#pz-hint');
+const pzRetryBtn = $('#pz-retry');
+const pzNextBtn = $('#pz-next');
+const puzzleConfettiLayer = $('#puzzle-confetti');
 
 // ---------------------------------------------------------------- state
 
@@ -1158,20 +1181,20 @@ function burstConfetti() {
   setTimeout(() => spawnConfetti(70), 300); // a second wave for a fuller celebration
 }
 
-function spawnConfetti(COUNT) {
-  if (!confettiLayer) return;
+function spawnConfetti(COUNT, layer = confettiLayer, colors) {
+  if (!layer) return;
 
-  const colors = [game.colors[1], game.colors[2], '#ffd23f', '#7cff6b', '#b26bff', '#3dd7ff'];
-  const rect = confettiLayer.getBoundingClientRect();
+  const palette = colors || [game.colors[1], game.colors[2], '#ffd23f', '#7cff6b', '#b26bff', '#3dd7ff'];
+  const rect = layer.getBoundingClientRect();
   const width = rect.width || 360;
   const pieces = [];
 
   for (let i = 0; i < COUNT; i++) {
     const el = document.createElement('div');
     el.className = 'confetti-piece';
-    el.style.background = colors[i % colors.length];
+    el.style.background = palette[i % palette.length];
     el.style.left = `${Math.random() * width}px`;
-    confettiLayer.appendChild(el);
+    layer.appendChild(el);
     pieces.push({
       el,
       x: 0,
@@ -1372,8 +1395,10 @@ function updateReplayLastChip() {
   if (replayLastChip) replayLastChip.hidden = !lastGame;
 }
 
-function buildReplayBoard() {
-  replayBoardEl.innerHTML = '';
+// Build an empty ROWS×COLS grid of `.cell > .socket` into any board element
+// (shared by the replay and puzzle boards).
+function buildBoardInto(el) {
+  el.innerHTML = '';
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const cell = document.createElement('div');
@@ -1383,9 +1408,13 @@ function buildReplayBoard() {
       const socket = document.createElement('div');
       socket.className = 'socket';
       cell.appendChild(socket);
-      replayBoardEl.appendChild(cell);
+      el.appendChild(cell);
     }
   }
+}
+
+function buildReplayBoard() {
+  buildBoardInto(replayBoardEl);
 }
 
 // Board after each prefix of moves: boards[0] = empty, boards[k] = after k moves.
@@ -1629,6 +1658,244 @@ function renderStats() {
   $('#stat-empty').hidden = s.total > 0;
 }
 
+// ---------------------------------------------------------------- puzzles
+// A self-contained "play and win" puzzle mode. Each puzzle is a preset position
+// (you are P1/red, to move) with a single forcing line, all verified offline by
+// the solver (js/puzzles.js + tools/test_puzzles.mjs). It reuses the board
+// primitives (spawnDisc / cellIn / lowestEmptyRow) but keeps its own light input
+// and state so the core game flow is untouched.
+
+const PUZZLE_COLORS = { [P1]: '#ff3b30', [P2]: '#ffd23f' }; // fixed red vs yellow
+const puzzle = { i: 0, board: null, line: [], step: 0, solved: false, busy: false, gen: 0 };
+
+function decodePuzzleGrid(grid) {
+  const board = createBoard();
+  for (let i = 0; i < grid.length; i++) {
+    const v = Number(grid[i]);
+    if (v) board[Math.floor(i / COLS)][i % COLS] = v;
+  }
+  return board;
+}
+
+const tierBucket = (winIn) => Math.min(5, winIn);
+
+function renderPuzzleList() {
+  const solved = new Set(puzzleProgress.solved);
+  puzzleGridEl.innerHTML = '';
+  PUZZLES.forEach((p, i) => {
+    const isSolved = solved.has(p.id);
+    const isLocked = p.id > puzzleProgress.unlockedTo && !isSolved;
+    const cell = document.createElement('button');
+    cell.className = `puzzle-cell tier-${tierBucket(p.winIn)}`;
+    if (isSolved) cell.classList.add('is-solved');
+    if (isLocked) cell.classList.add('is-locked');
+    cell.disabled = isLocked;
+    cell.dataset.i = String(i);
+    cell.setAttribute('role', 'listitem');
+    cell.setAttribute('aria-label', `Puzzle ${p.id}, ${p.tier}${isSolved ? ', solved' : isLocked ? ', locked' : ''}`);
+    cell.innerHTML =
+      `<span class="pz-mark" data-icon="${isSolved ? 'check' : isLocked ? 'lock' : ''}"></span>` +
+      `<span class="pz-num">${p.id}</span>` +
+      `<span class="pz-tier">${p.tier}</span>`;
+    puzzleGridEl.appendChild(cell);
+  });
+  installIcons(puzzleGridEl);
+  const solvedCount = PUZZLES.filter((p) => solved.has(p.id)).length;
+  puzzlesCountEl.textContent = `${solvedCount} / ${PUZZLES.length} solved`;
+  if (puzzlesProgressFill) puzzlesProgressFill.style.width = `${Math.round((solvedCount / PUZZLES.length) * 100)}%`;
+}
+
+function openPuzzles() {
+  renderPuzzleList();
+  showScreen('screen-puzzles', 'fwd');
+}
+
+function setPuzzleStatus(text, kind = '') {
+  puzzleStatusEl.textContent = text;
+  puzzleStatusEl.className = 'puzzle-status' + (kind ? ` is-${kind}` : '');
+}
+
+function clearPuzzleAim() {
+  puzzleBoardEl.querySelectorAll('.disc.aim').forEach((d) => d.remove());
+  puzzleBoardEl.querySelectorAll('.cell.col-hover').forEach((c) => c.classList.remove('col-hover'));
+}
+
+function clearPuzzleHint() {
+  puzzleBoardEl.querySelectorAll('.cell.hint').forEach((c) => c.classList.remove('hint'));
+  puzzleBoardEl.querySelectorAll('.disc.ghost').forEach((g) => g.remove());
+}
+
+function enterPuzzle(i) {
+  if (i < 0 || i >= PUZZLES.length) return;
+  const p = PUZZLES[i];
+  puzzle.i = i;
+  puzzle.board = decodePuzzleGrid(p.grid);
+  puzzle.line = p.line;
+  puzzle.step = 0;
+  puzzle.solved = false;
+  puzzle.busy = false;
+  puzzle.gen++;
+  buildBoardInto(puzzleBoardEl);
+  puzzleBoardEl.classList.add('col-hint');
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const v = puzzle.board[r][c];
+    if (v !== EMPTY) spawnDisc(puzzleBoardEl, r, c, PUZZLE_COLORS[v]);
+  }
+  puzzleTitleEl.textContent = `Puzzle ${p.id}`;
+  if (puzzleDotEl) puzzleDotEl.style.background = PUZZLE_COLORS[P1];
+  puzzlePromptText.textContent = `Red to move — win in ${p.winIn}`;
+  setPuzzleStatus('Find the winning move.');
+  pzNextBtn.hidden = true;
+  pzHintBtn.disabled = false;
+  showScreen('screen-puzzle', 'fwd');
+}
+
+const retryPuzzle = () => enterPuzzle(puzzle.i);
+const nextPuzzle = () => { if (puzzle.i < PUZZLES.length - 1) enterPuzzle(puzzle.i + 1); };
+
+// Drop `player`'s disc into `col` on the puzzle board (animated), then cb(row).
+function puzzlePlace(col, player, cb) {
+  const row = lowestEmptyRow(puzzle.board, col);
+  puzzle.board[row][col] = player;
+  const disc = spawnDisc(puzzleBoardEl, row, col, PUZZLE_COLORS[player], { drop: true });
+  sound.drop();
+  haptic(10);
+  onceAnimation(disc, () => cb(row));
+}
+
+function markPuzzleSolved(id) {
+  if (!puzzleProgress.solved.includes(id)) puzzleProgress.solved.push(id);
+  const idx = PUZZLES.findIndex((p) => p.id === id);
+  const nextId = idx >= 0 && idx < PUZZLES.length - 1 ? PUZZLES[idx + 1].id : id;
+  puzzleProgress.unlockedTo = Math.max(puzzleProgress.unlockedTo, nextId);
+  savePuzzleProgress();
+}
+
+function onPuzzleSolved(winCells) {
+  puzzle.solved = true;
+  puzzle.busy = false;
+  clearPuzzleAim();
+  if (winCells) winCells.forEach(([r, c]) => {
+    const d = cellIn(puzzleBoardEl, r, c).querySelector('.disc');
+    if (d) d.classList.add('win');
+  });
+  sound.win();
+  haptic([12, 40, 18]);
+  if (!prefersReducedMotion() && puzzleConfettiLayer) {
+    const cols = [PUZZLE_COLORS[P1], PUZZLE_COLORS[P2], '#7cff6b', '#b26bff', '#3dd7ff'];
+    spawnConfetti(120, puzzleConfettiLayer, cols);
+    setTimeout(() => spawnConfetti(60, puzzleConfettiLayer, cols), 260);
+  }
+  setPuzzleStatus('Solved! 🎉', 'good');
+  markPuzzleSolved(PUZZLES[puzzle.i].id);
+  pzNextBtn.hidden = puzzle.i >= PUZZLES.length - 1;
+  pzHintBtn.disabled = true;
+}
+
+function puzzleWrong(col) {
+  sound.invalid();
+  haptic(30);
+  for (let r = 0; r < ROWS; r++) cellIn(puzzleBoardEl, r, col).classList.add('wrong');
+  setTimeout(() => { for (let r = 0; r < ROWS; r++) cellIn(puzzleBoardEl, r, col).classList.remove('wrong'); }, 550);
+  setPuzzleStatus('Not the winning move — try again.', 'bad');
+}
+
+function puzzleDrop(col) {
+  if (col == null || puzzle.solved || puzzle.busy) return;
+  clearPuzzleHint();
+  const landing = lowestEmptyRow(puzzle.board, col);
+  if (landing < 0) { sound.invalid(); return; } // full column
+  if (col !== puzzle.line[puzzle.step]) { puzzleWrong(col); return; }
+
+  puzzle.busy = true;
+  clearPuzzleAim();
+  const gen = puzzle.gen;
+  puzzlePlace(col, P1, (r) => {
+    if (puzzle.gen !== gen) return; // navigated away mid-animation
+    const cells = checkWin(puzzle.board, r, col);
+    if (cells) { onPuzzleSolved(cells); return; }
+    puzzle.step++;
+    setPuzzleStatus('Good — keep going.', 'good');
+    const oppCol = puzzle.line[puzzle.step];
+    setTimeout(() => {
+      if (puzzle.gen !== gen) return;
+      puzzlePlace(oppCol, P2, () => {
+        if (puzzle.gen !== gen) return;
+        puzzle.step++;
+        puzzle.busy = false;
+        setPuzzleStatus('Your move.');
+      });
+    }, 460);
+  });
+}
+
+function puzzleHint() {
+  if (puzzle.solved || puzzle.busy) return;
+  clearPuzzleHint();
+  const col = puzzle.line[puzzle.step];
+  const row = lowestEmptyRow(puzzle.board, col);
+  if (row < 0) return;
+  for (let r = 0; r < ROWS; r++) cellIn(puzzleBoardEl, r, col).classList.add('hint');
+  const ghost = spawnDisc(puzzleBoardEl, row, col, PUZZLE_COLORS[P1]);
+  ghost.classList.add('ghost');
+  setPuzzleStatus('Hint: this column.', 'hint');
+}
+
+// Puzzle board input: press/hover to aim, release to drop (mirrors the game board).
+const pzAim = { pointerId: null };
+const puzzleCanPlay = () => currentScreen === 'screen-puzzle' && !puzzle.solved && !puzzle.busy;
+
+function puzzleColFromPoint(x, y) {
+  const el = document.elementFromPoint(x, y);
+  const cell = el && el.closest ? el.closest('.cell') : null;
+  if (!cell || !puzzleBoardEl.contains(cell)) return null;
+  return Number(cell.dataset.col);
+}
+
+function puzzleRenderAim(col) {
+  clearPuzzleAim();
+  if (col == null || !puzzleCanPlay()) return;
+  for (let r = 0; r < ROWS; r++) cellIn(puzzleBoardEl, r, col).classList.add('col-hover');
+  const row = lowestEmptyRow(puzzle.board, col);
+  if (row < 0) return;
+  const ghost = document.createElement('div');
+  ghost.className = 'disc aim';
+  ghost.style.setProperty('--disc', PUZZLE_COLORS[P1]);
+  cellIn(puzzleBoardEl, row, col).appendChild(ghost);
+}
+
+function wirePuzzleBoard() {
+  const hoverCapable = window.matchMedia('(hover: hover)').matches;
+  puzzleBoardEl.addEventListener('pointerdown', (e) => {
+    if (!puzzleCanPlay()) return;
+    const cell = e.target.closest('.cell');
+    if (!cell) return;
+    pzAim.pointerId = e.pointerId;
+    try { puzzleBoardEl.setPointerCapture(e.pointerId); } catch { /* not fatal */ }
+    puzzleRenderAim(Number(cell.dataset.col));
+    e.preventDefault();
+  });
+  puzzleBoardEl.addEventListener('pointermove', (e) => {
+    if (pzAim.pointerId === e.pointerId) {
+      puzzleRenderAim(puzzleColFromPoint(e.clientX, e.clientY));
+      e.preventDefault();
+    } else if (pzAim.pointerId == null && hoverCapable) {
+      const cell = e.target.closest('.cell');
+      puzzleRenderAim(cell ? Number(cell.dataset.col) : null);
+    }
+  });
+  puzzleBoardEl.addEventListener('pointerup', (e) => {
+    if (pzAim.pointerId !== e.pointerId) return;
+    const col = puzzleColFromPoint(e.clientX, e.clientY);
+    try { puzzleBoardEl.releasePointerCapture(e.pointerId); } catch { /* not fatal */ }
+    pzAim.pointerId = null;
+    puzzleBoardEl.querySelectorAll('.disc.aim').forEach((d) => d.remove());
+    if (col != null) puzzleDrop(col);
+  });
+  puzzleBoardEl.addEventListener('pointercancel', () => { pzAim.pointerId = null; clearPuzzleAim(); });
+  puzzleBoardEl.addEventListener('pointerleave', () => { if (pzAim.pointerId == null) clearPuzzleAim(); });
+}
+
 // ---------------------------------------------------------------- column hover (pointer devices)
 
 function setHoverCol(col) {
@@ -1708,6 +1975,7 @@ function wire() {
 
   $('#btn-mode-bot').addEventListener('click', () => openSetup('bot'));
   $('#btn-mode-2p').addEventListener('click', () => openSetup('2p'));
+  $('#btn-mode-puzzles').addEventListener('click', openPuzzles);
   $('#btn-start').addEventListener('click', startFromSetup);
   $('#btn-restart').addEventListener('click', restartRound);
   $('#btn-newround').addEventListener('click', restartRound);
@@ -1732,7 +2000,18 @@ function wire() {
   if (rpHintBtn) rpHintBtn.addEventListener('click', showReplayHint);
   updateReplayLastChip();
 
+  // Puzzles: list navigation + play controls + board input.
+  puzzleGridEl.addEventListener('click', (e) => {
+    const cell = e.target.closest('.puzzle-cell');
+    if (cell && !cell.disabled) enterPuzzle(Number(cell.dataset.i));
+  });
+  pzHintBtn.addEventListener('click', puzzleHint);
+  pzRetryBtn.addEventListener('click', retryPuzzle);
+  pzNextBtn.addEventListener('click', nextPuzzle);
+  wirePuzzleBoard();
+
   document.querySelectorAll('[data-nav="menu"]').forEach((el) => el.addEventListener('click', goMenu));
+  document.querySelectorAll('[data-nav="puzzles"]').forEach((el) => el.addEventListener('click', openPuzzles));
 
   diffSegs.forEach((seg) => {
     seg.addEventListener('click', () => {

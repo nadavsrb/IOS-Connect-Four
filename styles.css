@@ -207,6 +207,7 @@ body::before {
 #screen-menu.intro .btn-mode    { animation: fade-up 0.55s ease both; }
 #screen-menu.intro .menu-actions .btn-mode:nth-of-type(1) { animation-delay: 0.36s; }
 #screen-menu.intro .menu-actions .btn-mode:nth-of-type(2) { animation-delay: 0.46s; }
+#screen-menu.intro .menu-actions .btn-mode:nth-of-type(3) { animation-delay: 0.56s; }
 #screen-menu.intro .menu-footer { animation: fade-up 0.5s ease 0.58s both; }
 #screen-menu.intro #menu-hero   { animation: fade-in 1.3s ease both; }
 @keyframes word-drop {
@@ -305,6 +306,11 @@ body::before {
   border-color: rgba(61, 215, 255, 0.5);
   background: linear-gradient(135deg, rgba(61, 215, 255, 0.22), rgba(123, 92, 255, 0.2));
   box-shadow: 0 8px 30px rgba(61, 215, 255, 0.22), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.btn-tertiary {
+  border-color: rgba(255, 190, 60, 0.5);
+  background: linear-gradient(135deg, rgba(255, 190, 60, 0.24), rgba(255, 61, 127, 0.18));
+  box-shadow: 0 8px 30px rgba(255, 190, 60, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 .btn-ghost { background: var(--panel); border-color: var(--stroke); }
 .btn-wide { width: 100%; }
@@ -1032,6 +1038,107 @@ body::before {
   border-radius: 2px;
   will-change: transform, opacity;
 }
+
+/* ---------------- Puzzles ---------------- */
+
+.puzzles-intro { text-align: center; color: var(--text-dim); font-size: 0.92rem; margin: 2px 6px 0; }
+.puzzles-progress {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--socket);
+  border: 1px solid var(--stroke);
+  overflow: hidden;
+  margin: 8px 4px 0;
+}
+#puzzles-progress-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--accent), #ffbe3c);
+  transition: width 0.4s ease;
+}
+.puzzles-count { text-align: center; color: var(--text-dim); font-size: 0.82rem; margin: 6px 0 0; }
+
+.puzzle-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  padding: 4px 2px 12px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.puzzle-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  aspect-ratio: 1;
+  border: 1px solid var(--stroke);
+  background: var(--panel);
+  border-radius: 16px;
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+  padding: 6px;
+  overflow: hidden;
+  transition: transform 0.12s ease, border-color 0.2s ease;
+}
+.puzzle-cell::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 24%;
+  right: 24%;
+  height: 3px;
+  border-radius: 0 0 3px 3px;
+  background: var(--tier, var(--accent));
+}
+.puzzle-cell:not(:disabled):active { transform: scale(0.95); }
+.puzzle-cell .pz-num { font-size: 1.35rem; font-weight: 800; line-height: 1; }
+.puzzle-cell .pz-tier { font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); }
+.puzzle-cell .pz-mark { position: absolute; top: 6px; right: 7px; width: 15px; height: 15px; color: var(--text-dim); }
+.puzzle-cell .pz-mark svg { width: 100%; height: 100%; }
+
+.puzzle-cell.tier-1 { --tier: #7cff6b; }
+.puzzle-cell.tier-2 { --tier: #3dd7ff; }
+.puzzle-cell.tier-3 { --tier: #ffd23f; }
+.puzzle-cell.tier-4 { --tier: #ff9f3c; }
+.puzzle-cell.tier-5 { --tier: #ff3b6b; }
+
+.puzzle-cell.is-solved {
+  border-color: rgba(124, 255, 107, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(124, 255, 107, 0.25);
+}
+.puzzle-cell.is-solved .pz-mark { color: #7cff6b; }
+.puzzle-cell.is-locked { opacity: 0.42; cursor: not-allowed; }
+
+/* Puzzle play screen */
+#screen-puzzle { position: relative; }
+.puzzle-prompt { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 2px 0 0; }
+.puzzle-dot { width: 15px; height: 15px; border-radius: 50%; background: #ff3b30; box-shadow: 0 0 10px currentColor; }
+.puzzle-prompt-text { font-size: 1rem; font-weight: 700; }
+.puzzle-status {
+  text-align: center;
+  min-height: 1.4em;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin: 2px 0 0;
+  transition: color 0.2s ease;
+}
+.puzzle-status.is-good { color: #57e06a; }
+.puzzle-status.is-bad { color: #ff5a5a; }
+.puzzle-status.is-hint { color: #f5b301; }
+.puzzle-controls { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+#puzzle-confetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 5; }
+
+/* Wrong-move feedback: a red flash down the tapped column. */
+.cell.wrong .socket { box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.8), 0 0 0 2px #ff5a5a; }
 
 /* ---------------- Themes ---------------- */
 /* Neon is the default (:root above). Classic and Minimal override key vars +

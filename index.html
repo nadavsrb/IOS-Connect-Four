@@ -53,6 +53,13 @@
             <span class="btn-mode-sub">Pass &amp; play on this phone</span>
           </span>
         </button>
+        <button id="btn-mode-puzzles" class="btn btn-tertiary btn-mode">
+          <span class="btn-mode-icon" aria-hidden="true" data-icon="puzzle"></span>
+          <span class="btn-mode-text">
+            <span class="btn-mode-title">Puzzles</span>
+            <span class="btn-mode-sub">Play &amp; win — 30+ that get harder</span>
+          </span>
+        </button>
       </div>
 
       <div class="menu-footer">
@@ -289,6 +296,50 @@
 
         <p class="stat-empty" id="stat-empty" hidden>Play a game to start building your stats.</p>
       </div>
+    </section>
+
+    <!-- ================= PUZZLES (list) ================= -->
+    <section id="screen-puzzles" class="screen" aria-label="Puzzles">
+      <header class="topbar">
+        <button class="icon-btn" data-nav="menu" aria-label="Back to menu"><span data-icon="back"></span></button>
+        <h2 class="topbar-title">Puzzles</h2>
+        <span class="icon-btn-spacer"></span>
+      </header>
+
+      <p class="puzzles-intro">You're <b>red</b> — find the move that forces a win. Each one is harder than the last.</p>
+      <div class="puzzles-progress"><span id="puzzles-progress-fill"></span></div>
+      <p class="puzzles-count" id="puzzles-count">0 / 0 solved</p>
+
+      <div class="puzzle-grid" id="puzzle-grid" role="list" aria-label="Puzzle list"></div>
+    </section>
+
+    <!-- ================= PUZZLE (play) ================= -->
+    <section id="screen-puzzle" class="screen" aria-label="Puzzle">
+      <header class="topbar">
+        <button class="icon-btn" data-nav="puzzles" aria-label="Back to puzzle list"><span data-icon="back"></span></button>
+        <h2 class="topbar-title" id="puzzle-title">Puzzle</h2>
+        <span class="icon-btn-spacer"></span>
+      </header>
+
+      <div class="puzzle-prompt" id="puzzle-prompt">
+        <span class="puzzle-dot" aria-hidden="true"></span>
+        <span class="puzzle-prompt-text" id="puzzle-prompt-text">Red to move — win in 1</span>
+      </div>
+
+      <div class="board-wrap">
+        <div id="puzzle-board" class="board" role="grid" aria-label="Puzzle board"></div>
+      </div>
+
+      <p class="puzzle-status" id="puzzle-status" aria-live="polite">&nbsp;</p>
+
+      <div class="puzzle-controls">
+        <button id="pz-hint" class="btn btn-ghost"><span class="ico" data-icon="bulb"></span> Hint</button>
+        <button id="pz-retry" class="btn btn-ghost"><span class="ico" data-icon="restart"></span> Retry</button>
+        <button id="pz-next" class="btn btn-primary" hidden>Next <span class="ico" data-icon="play"></span></button>
+      </div>
+
+      <!-- Confetti burst layer for a solved puzzle -->
+      <div id="puzzle-confetti" aria-hidden="true"></div>
     </section>
 
   </div>

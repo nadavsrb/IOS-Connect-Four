@@ -1,6 +1,7 @@
 // Browser smoke test: drives the real UI in Chromium at an iPhone viewport.
 // Usage: node tools/smoke_test.mjs <baseURL> <screenshotDir>
 import { chromium, devices } from 'playwright-core';
+import { PUZZLES } from '../js/puzzles.js';
 
 const BASE = process.argv[2] || 'http://127.0.0.1:8080';
 const SHOTS = process.argv[3] || '.';
@@ -330,6 +331,63 @@ try {
   await page.locator('#screen-stats [data-nav="menu"]').click();
   await wait(150);
   ok('back from stats returns to the menu', await page.locator('#screen-menu').evaluate((el) => el.classList.contains('is-active')));
+
+  // --- Puzzles ---
+  // Fresh progress so only puzzle 1 is unlocked, then drive puzzle 1's known line.
+  await page.evaluate(() => localStorage.removeItem('c4.puzzles.v1'));
+  await page.reload({ waitUntil: 'networkidle' });
+  await wait(300);
+  ok('menu shows the Puzzles button', await page.locator('#btn-mode-puzzles').isVisible());
+  await page.locator('#btn-mode-puzzles').click();
+  await wait(250);
+  ok('puzzles list opens', await page.locator('#screen-puzzles').evaluate((el) => el.classList.contains('is-active')));
+  ok('list shows all puzzles (≥ 30)', (await page.locator('#puzzle-grid .puzzle-cell').count()) >= 30);
+  ok('later puzzles start locked', (await page.locator('#puzzle-grid .puzzle-cell.is-locked').count()) > 0);
+  ok('the first puzzle is not locked', !(await page.locator('#puzzle-grid .puzzle-cell').first().evaluate((el) => el.classList.contains('is-locked'))));
+  await page.screenshot({ path: `${SHOTS}/12-puzzles.png` });
+
+  const pz1 = PUZZLES[0];
+  const preset = [...pz1.grid].filter((ch) => ch !== '0').length;
+  const solCol = pz1.line[0];
+  const wrongCol = [0, 1, 2, 3, 4, 5, 6].find((c) => c !== solCol && pz1.grid[c] === '0'); // a non-full, non-solution column
+  const pzDiscs = () => page.locator('#puzzle-board .disc').count();
+  const pzDrop = async (col) => { await page.locator(`#puzzle-board .cell[data-col="${col}"]`).first().click(); await wait(500); };
+
+  await page.locator('#puzzle-grid .puzzle-cell').first().click();
+  await wait(250);
+  ok('puzzle play screen opens', await page.locator('#screen-puzzle').evaluate((el) => el.classList.contains('is-active')));
+  ok('preset position is painted', (await pzDiscs()) === preset);
+
+  // Wrong move: no disc placed, "try again" shown.
+  await pzDrop(wrongCol);
+  ok('a wrong move places no disc', (await pzDiscs()) === preset);
+  ok('a wrong move is rejected with feedback', /try again/i.test((await page.locator('#puzzle-status').textContent()) || ''));
+
+  // Hint highlights the solution column.
+  await page.locator('#pz-hint').click();
+  await wait(150);
+  ok('hint highlights the solving column', await page.locator(`#puzzle-board .cell[data-col="${solCol}"].hint`).count() > 0);
+
+  // Solve it (puzzle 1 is win-in-1).
+  await pzDrop(solCol);
+  await wait(300);
+  ok('solving adds the winning disc', (await pzDiscs()) === preset + 1);
+  ok('the winning four are highlighted', (await page.locator('#puzzle-board .disc.win').count()) === 4);
+  ok('solved state is announced', /solved/i.test((await page.locator('#puzzle-status').textContent()) || ''));
+  ok('a Next button appears on solve', !(await page.locator('#pz-next').evaluate((el) => el.hidden)));
+  await page.screenshot({ path: `${SHOTS}/13-puzzle-solved.png` });
+
+  // Progress persists and unlocks the next puzzle.
+  const pzProg = JSON.parse(await page.evaluate(() => localStorage.getItem('c4.puzzles.v1')) || '{}');
+  ok('puzzle 1 recorded as solved', Array.isArray(pzProg.solved) && pzProg.solved.includes(pz1.id));
+  ok('the next puzzle is unlocked', pzProg.unlockedTo >= PUZZLES[1].id);
+  await page.locator('#screen-puzzle [data-nav="puzzles"]').click();
+  await wait(200);
+  ok('back returns to the puzzle list', await page.locator('#screen-puzzles').evaluate((el) => el.classList.contains('is-active')));
+  ok('the list shows one solved', (await page.locator('#puzzle-grid .puzzle-cell.is-solved').count()) === 1);
+  ok('the count reflects progress', /^1 \/ \d+ solved/.test((await page.locator('#puzzles-count').textContent()) || ''));
+  await page.locator('#screen-puzzles [data-nav="menu"]').click();
+  await wait(150);
 
   // --- Turn timer: 15s countdown then timeout loss (slowest, do last) ---
   const statsBefore = JSON.parse(await page.evaluate(() => localStorage.getItem('c4.stats.v1')));
