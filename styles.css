@@ -1184,12 +1184,15 @@ body::before {
 .puzzle-cell.tier-6 { --tier: #b26bff; }
 .puzzle-cell.tier-7 { --tier: #ff2d6f; }
 
+/* Solved: a green wash + tick. Nothing is ever locked, so this is the only state
+   a cell carries — it has to read at a glance across a grid of 56. */
 .puzzle-cell.is-solved {
-  border-color: rgba(124, 255, 107, 0.5);
+  border-color: rgba(124, 255, 107, 0.55);
+  background: linear-gradient(180deg, rgba(124, 255, 107, 0.16), rgba(124, 255, 107, 0.06));
   box-shadow: inset 0 0 0 1px rgba(124, 255, 107, 0.25);
 }
+.puzzle-cell.is-solved .pz-num { color: #b6ffab; }
 .puzzle-cell.is-solved .pz-mark { color: #7cff6b; }
-.puzzle-cell.is-locked { opacity: 0.42; cursor: not-allowed; }
 
 /* Puzzle play screen */
 #screen-puzzle { position: relative; }

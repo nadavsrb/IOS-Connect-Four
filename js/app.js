@@ -62,7 +62,6 @@ const ICONS = {
   restart: S('<path d="M20 11.5a8 8 0 1 0-.8 4"/><path d="M20 4v5.5h-5.5"/>'),
   puzzle: S('<path d="M10.2 4a1.8 1.8 0 0 1 3.6 0c0 .9 1 1.5 1.8 1.1.5-.2 1.1-.1 1.5.3l.5.5c.4.4.5 1 .3 1.5-.4.8.2 1.8 1.1 1.8a1.8 1.8 0 0 1 0 3.6c-.9 0-1.5 1-1.1 1.8.2.5.1 1.1-.3 1.5l-.5.5c-.4.4-1 .5-1.5.3-.8-.4-1.8.2-1.8 1.1a1.8 1.8 0 0 1-3.6 0c0-.9-1-1.5-1.8-1.1-.5.2-1.1.1-1.5-.3l-.5-.5c-.4-.4-.5-1-.3-1.5.4-.8-.2-1.8-1.1-1.8a1.8 1.8 0 0 1 0-3.6c.9 0 1.5-1 1.1-1.8-.2-.5-.1-1.1.3-1.5l.5-.5c.4-.4 1-.5 1.5-.3.8.4 1.8-.2 1.8-1.1z"/>'),
   check: S('<path d="M5 12.5l4.2 4.5L19 6.5"/>', 'fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"'),
-  lock: S('<rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>'),
 };
 
 function installIcons(root = document) {
@@ -122,9 +121,11 @@ if (prefs.c1 === '#ff3d7f' && prefs.c2 === '#3dd7ff') {
 }
 let stats = loadJSON(STATS_KEY, { 1: 0, 2: 0, draws: 0 });
 let history = loadJSON(HISTORY_KEY, emptyHistory());
-// Puzzle progress: which ids are solved, and the highest-id puzzle unlocked so
-// far (puzzles unlock in order). Arrays survive the {...fallback} merge as-is.
-let puzzleProgress = loadJSON(PUZZLES_KEY, { solved: [], unlockedTo: 1 });
+// Puzzle progress: just which ids you've solved. Every puzzle is playable from
+// the start, so there is nothing to unlock. (Older saves also carry an
+// `unlockedTo` from when they did lock; it's simply ignored now.) Arrays survive
+// the {...fallback} merge as-is.
+let puzzleProgress = loadJSON(PUZZLES_KEY, { solved: [] });
 if (!Array.isArray(puzzleProgress.solved)) puzzleProgress.solved = [];
 const savePrefs = () => saveJSON(PREFS_KEY, prefs);
 const saveStats = () => saveJSON(STATS_KEY, stats);
@@ -1945,22 +1946,21 @@ function decodePuzzleGrid(grid) {
 
 const tierBucket = (winIn) => Math.min(7, winIn);
 
+// Every puzzle is playable from the start — the list is a menu, not a gate. The
+// only state it carries is which ones you've already solved.
 function renderPuzzleList() {
   const solved = new Set(puzzleProgress.solved);
   puzzleGridEl.innerHTML = '';
   PUZZLES.forEach((p, i) => {
     const isSolved = solved.has(p.id);
-    const isLocked = p.id > puzzleProgress.unlockedTo && !isSolved;
     const cell = document.createElement('button');
     cell.className = `puzzle-cell tier-${tierBucket(p.winIn)}`;
     if (isSolved) cell.classList.add('is-solved');
-    if (isLocked) cell.classList.add('is-locked');
-    cell.disabled = isLocked;
     cell.dataset.i = String(i);
     cell.setAttribute('role', 'listitem');
-    cell.setAttribute('aria-label', `Puzzle ${p.id}, ${p.tier}${isSolved ? ', solved' : isLocked ? ', locked' : ''}`);
+    cell.setAttribute('aria-label', `Puzzle ${p.id}, ${p.tier}, win in ${p.winIn}${isSolved ? ', solved' : ''}`);
     cell.innerHTML =
-      `<span class="pz-mark" data-icon="${isSolved ? 'check' : isLocked ? 'lock' : ''}"></span>` +
+      `<span class="pz-mark" data-icon="${isSolved ? 'check' : ''}"></span>` +
       `<span class="pz-num">${p.id}</span>` +
       `<span class="pz-tier">${p.tier}</span>`;
     puzzleGridEl.appendChild(cell);
@@ -2031,9 +2031,6 @@ function puzzlePlace(col, player, cb) {
 
 function markPuzzleSolved(id) {
   if (!puzzleProgress.solved.includes(id)) puzzleProgress.solved.push(id);
-  const idx = PUZZLES.findIndex((p) => p.id === id);
-  const nextId = idx >= 0 && idx < PUZZLES.length - 1 ? PUZZLES[idx + 1].id : id;
-  puzzleProgress.unlockedTo = Math.max(puzzleProgress.unlockedTo, nextId);
   savePuzzleProgress();
 }
 

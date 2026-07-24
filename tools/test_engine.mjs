@@ -528,7 +528,6 @@ console.log('Bot: solver-backed endgame move choice');
   let deterministic = true;
   let sawDecisive = false;
   let exactBypassesSolver = true; // {exact:false} must route to plain minimax
-  let exactFlagMatters = false;   // ...and the two searches must genuinely differ somewhere
 
   for (let i = 0; i < 30000 && checked < 30; i++) {
     const b = randomPos(24 + Math.floor(Math.random() * 8));
@@ -567,7 +566,6 @@ console.log('Bot: solver-backed endgame move choice');
       const viaMinimax = __test.bestMinimaxMove(cloneBoard(b), mover, __test.INSANE_DEPTH);
       Math.random = realRandom;
       if (viaFlag !== viaMinimax) exactBypassesSolver = false;
-      if (viaFlag !== pick) exactFlagMatters = true; // the two searches really can differ
     }
     if (best !== 0) sawDecisive = true;
     checked++;
@@ -578,7 +576,34 @@ console.log('Bot: solver-backed endgame move choice');
   ok('the endgame choice is deterministic', deterministic);
   ok('the scan covered decided positions, not just draws', sawDecisive);
   ok('exact:false routes insane to plain minimax', exactBypassesSolver);
-  ok('the solver and minimax really do pick differently somewhere', exactFlagMatters);
+}
+{
+  // A concrete endgame where the two searches genuinely disagree, so the tests
+  // above can't be vacuous. Pinned as a fixture rather than found by scanning:
+  // depth-8 minimax throws the draw away here and loses, while the solver holds
+  // it. 30 discs, P1 to move.
+  const grid = '220010021002021220101121020111211022122211';
+  const b = createBoard();
+  for (let i = 0; i < grid.length; i++) b[Math.floor(i / COLS)][i % COLS] = Number(grid[i]);
+
+  const solverPick = chooseMove(cloneBoard(b), P1, 'insane');
+  const realRandom = Math.random;
+  Math.random = () => 0.42; // freeze the centre-preference tie-break
+  const minimaxPick = chooseMove(cloneBoard(b), P1, 'insane', { exact: false });
+  Math.random = realRandom;
+
+  // True value of a column for P1: +ve win, 0 draw, -ve loss.
+  const valueOf = (c) => {
+    const t = cloneBoard(b);
+    const l = dropDisc(t, c, P1);
+    if (checkWin(t, l.row, l.col)) return Infinity;
+    const r = solveBoard(t, P2, { budget: 200000 });
+    return r ? -r.score : null;
+  };
+
+  ok('fixture: solver and minimax pick different columns', solverPick !== minimaxPick);
+  ok('fixture: the solver holds the draw', valueOf(solverPick) === 0);
+  ok('fixture: plain minimax throws it away and loses', valueOf(minimaxPick) < 0);
 }
 {
   // The Pop-Out variant must never get solver-"proven" numbers: the solver plays

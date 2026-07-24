@@ -369,7 +369,7 @@ try {
   ok('back from stats returns to the menu', await page.locator('#screen-menu').evaluate((el) => el.classList.contains('is-active')));
 
   // --- Puzzles ---
-  // Fresh progress so only puzzle 1 is unlocked, then drive puzzle 1's known line.
+  // Fresh progress (nothing solved yet), then drive puzzle 1's known line.
   await page.evaluate(() => localStorage.removeItem('c4.puzzles.v1'));
   await page.reload({ waitUntil: 'networkidle' });
   await wait(300);
@@ -378,8 +378,17 @@ try {
   await wait(250);
   ok('puzzles list opens', await page.locator('#screen-puzzles').evaluate((el) => el.classList.contains('is-active')));
   ok('list shows all puzzles (≥ 30)', (await page.locator('#puzzle-grid .puzzle-cell').count()) >= 30);
-  ok('later puzzles start locked', (await page.locator('#puzzle-grid .puzzle-cell.is-locked').count()) > 0);
-  ok('the first puzzle is not locked', !(await page.locator('#puzzle-grid .puzzle-cell').first().evaluate((el) => el.classList.contains('is-locked'))));
+  // Nothing is ever locked — every puzzle is playable from a fresh install.
+  ok('no puzzle is locked', (await page.locator('#puzzle-grid .puzzle-cell.is-locked').count()) === 0);
+  ok('every puzzle cell is enabled', (await page.locator('#puzzle-grid .puzzle-cell:disabled').count()) === 0);
+  ok('none are marked solved on a fresh install', (await page.locator('#puzzle-grid .puzzle-cell.is-solved').count()) === 0);
+  // The hardest puzzle at the very end of the ladder opens straight away.
+  await page.locator('#puzzle-grid .puzzle-cell').last().click();
+  await wait(250);
+  ok('the last puzzle opens without solving anything first',
+    await page.locator('#screen-puzzle').evaluate((el) => el.classList.contains('is-active')));
+  await page.locator('#screen-puzzle [data-nav="puzzles"]').click();
+  await wait(200);
   await page.screenshot({ path: `${SHOTS}/12-puzzles.png` });
 
   const pz1 = PUZZLES[0];
@@ -413,15 +422,26 @@ try {
   ok('a Next button appears on solve', !(await page.locator('#pz-next').evaluate((el) => el.hidden)));
   await page.screenshot({ path: `${SHOTS}/13-puzzle-solved.png` });
 
-  // Progress persists and unlocks the next puzzle.
+  // Progress persists.
   const pzProg = JSON.parse(await page.evaluate(() => localStorage.getItem('c4.puzzles.v1')) || '{}');
   ok('puzzle 1 recorded as solved', Array.isArray(pzProg.solved) && pzProg.solved.includes(pz1.id));
-  ok('the next puzzle is unlocked', pzProg.unlockedTo >= PUZZLES[1].id);
   await page.locator('#screen-puzzle [data-nav="puzzles"]').click();
   await wait(200);
   ok('back returns to the puzzle list', await page.locator('#screen-puzzles').evaluate((el) => el.classList.contains('is-active')));
   ok('the list shows one solved', (await page.locator('#puzzle-grid .puzzle-cell.is-solved').count()) === 1);
+  ok('the solved cell carries a tick', (await page.locator('#puzzle-grid .puzzle-cell.is-solved .pz-mark svg').count()) === 1);
   ok('the count reflects progress', /^1 \/ \d+ solved/.test((await page.locator('#puzzles-count').textContent()) || ''));
+
+  // The solved marker is the list's whole job now, so prove it survives a reload.
+  await page.reload({ waitUntil: 'networkidle' });
+  await wait(300);
+  await page.locator('#btn-mode-puzzles').click();
+  await wait(250);
+  ok('solved marks survive a reload', (await page.locator('#puzzle-grid .puzzle-cell.is-solved').count()) === 1);
+  ok('the solved one is the puzzle actually solved',
+    await page.locator('#puzzle-grid .puzzle-cell').first().evaluate((el) => el.classList.contains('is-solved')));
+  ok('everything is still unlocked after solving', (await page.locator('#puzzle-grid .puzzle-cell:disabled').count()) === 0);
+  await page.screenshot({ path: `${SHOTS}/12b-puzzles-solved.png` });
   await page.locator('#screen-puzzles [data-nav="menu"]').click();
   await wait(150);
 

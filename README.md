@@ -20,9 +20,11 @@ icon, works **offline**, and feels like a native app.
 - 👥 **Two Players** — pass-and-play on one phone.
 - 🧩 **Puzzles** — a ladder of **50+ "play and win" puzzles** that get progressively harder (Warm-up →
   **Mastermind**, *win in 1* up to *win in 7+*). You're red; find the move that forces a win against the
-  opponent's best defence. Each has a single correct key move at every step — solve one to unlock the
-  next, with progress saved on-device. Every puzzle was **generated and proven correct by the bitboard
-  solver** offline (see `tools/gen_puzzles.mjs` / `tools/test_puzzles.mjs`), so the solutions are exact.
+  opponent's best defence. Each has a single correct key move at every step. **Every puzzle is unlocked
+  from the start** — play them in any order — and the list marks the ones you've solved, with progress
+  saved on-device. Every puzzle was **generated and proven correct by the bitboard solver** offline
+  (see `tools/gen_puzzles.mjs` / `tools/test_puzzles.mjs`): the solutions are exact, the advertised
+  *win in N* matches the solver's mate distance, and the opponent always plays a true best defence.
 - 📊 **Win-% eval bar + best move** — an optional bar (toggle **📊 Win odds** in-game) shows each
   player's chance to win, like a chess eval bar. In the opening/midgame it's a turn-aware engine
   estimate; from the game's second half on it becomes **exact**, solved by a bitboard solver
