@@ -195,6 +195,25 @@
       </div>
 
       <div class="board-wrap">
+        <!-- The bot's "hand": hovers above the board on the bot's turn, slides to the
+             chosen column and drops the disc. Gets scarier at higher difficulty. -->
+        <div id="bot-robot" class="bot-robot" aria-hidden="true">
+          <div class="br-body">
+            <span class="br-antenna br-antenna-l"></span>
+            <span class="br-antenna br-antenna-r"></span>
+            <div class="br-head">
+              <div class="br-eyes">
+                <span class="br-eye"></span>
+                <span class="br-eye"></span>
+              </div>
+              <span class="br-mouth"></span>
+            </div>
+            <div class="br-claw">
+              <span class="br-prong br-prong-l"></span>
+              <span class="br-prong br-prong-r"></span>
+            </div>
+          </div>
+        </div>
         <div id="board" class="board" role="grid" aria-label="Connect Four board"></div>
       </div>
 

@@ -332,6 +332,7 @@ function haptic(pattern) {
 // ---------------------------------------------------------------- DOM refs
 
 const boardEl = $('#board');
+const botRobot = $('#bot-robot');
 const turnIndicator = $('#turn-indicator');
 const turnDot = $('#turn-dot');
 const turnText = $('#turn-text');
@@ -659,6 +660,7 @@ function startGame(mode) {
 function resetRoundState() {
   moveGen++; // invalidate any in-flight move callbacks from the previous round
   stopTurnTimer();
+  hideBotRobot();
   game.board = createBoard();
   game.current = game.startingPlayer;
   game.active = true;
@@ -708,6 +710,7 @@ function pushSnapshot() {
 function passTurn() {
   game.current = other(game.current);
   game.popArmed = false;
+  if (!(game.mode === 'bot' && game.current === P2)) hideBotRobot(); // retract once it's the human's turn
   updateTurnIndicator();
   updatePopControl();
   updateEvalBar();
@@ -795,12 +798,56 @@ function attemptPop(col) {
   }, 400);
 }
 
+// --- The bot's "hand": a little robot that hovers above the board, slides to the
+// chosen column and drops the disc. It gets scarier as the difficulty rises.
+let botRobotCol = 3;
+
+function positionBotRobot(col) {
+  if (!botRobot) return;
+  const cell = cellAt(0, col);
+  if (!cell) return;
+  const wrapRect = botRobot.parentElement.getBoundingClientRect();
+  const boardRect = boardEl.getBoundingClientRect();
+  const cellRect = cell.getBoundingClientRect();
+  const cx = cellRect.left + cellRect.width / 2 - wrapRect.left;
+  const w = botRobot.offsetWidth || 62;
+  const h = botRobot.offsetHeight || 64;
+  botRobot.style.setProperty('--tx', `${Math.round(cx - w / 2)}px`);
+  botRobot.style.setProperty('--ty', `${Math.round(boardRect.top - wrapRect.top - h + 16)}px`);
+}
+
+function showBotRobot() {
+  if (!botRobot || game.mode !== 'bot') return;
+  botRobot.classList.remove('diff-easy', 'diff-medium', 'diff-hard', 'diff-insane', 'dropping');
+  botRobot.classList.add(`diff-${game.difficulty}`);
+  positionBotRobot(botRobotCol); // hover above its last column (centre on the first turn)
+  void botRobot.offsetWidth; // commit the position before fading in so it doesn't slide from 0,0
+  botRobot.classList.add('is-active');
+}
+
+function hideBotRobot() {
+  if (botRobot) botRobot.classList.remove('is-active', 'dropping');
+}
+
+// Slide the robot over `col`, then open its claw and run `drop` as the disc falls.
+function botDropAt(col, drop) {
+  botRobotCol = col;
+  positionBotRobot(col);
+  const slide = prefersReducedMotion() ? 0 : 340;
+  setTimeout(() => {
+    if (botRobot) botRobot.classList.add('dropping');
+    drop();
+    setTimeout(() => { if (botRobot) botRobot.classList.remove('dropping'); }, 340);
+  }, slide);
+}
+
 function maybeBotMove() {
   if (game.mode !== 'bot' || game.over || !game.active) return;
   if (game.current !== P2) return;
   game.locked = true;
   updateUndoBtn();
   setThinking(true);
+  showBotRobot();
   const gen = moveGen;
   const delay = 420 + Math.random() * 340;
   setTimeout(() => {
@@ -811,9 +858,13 @@ function maybeBotMove() {
     const col = chooseMove(game.board, P2, game.difficulty);
     if (col == null) {
       game.locked = false;
+      hideBotRobot();
       return;
     }
-    attemptDrop(col);
+    botDropAt(col, () => {
+      if (gen !== moveGen || game.over || !game.active || game.current !== P2) return;
+      attemptDrop(col);
+    });
   }, delay);
 }
 
@@ -822,6 +873,7 @@ function endGame(winner, cells, reason) {
   game.active = false;
   game.locked = true;
   game.popArmed = false;
+  hideBotRobot();
   stopTurnTimer();
   updateUndoBtn();
   updatePopControl();
@@ -926,6 +978,7 @@ function undo() {
   if (!snap) return;
   moveGen++; // invalidate any in-flight callbacks
   clearHint();
+  hideBotRobot(); // undo returns to your turn
   game.board = cloneBoard(snap.board);
   game.current = snap.current;
   game.lastMove = snap.last;
@@ -1031,6 +1084,7 @@ function goMenu() {
   stopTurnTimer();
   stopReplayPlay();
   clearHint();
+  hideBotRobot();
   game.active = false;
   game.over = false;
   game.locked = false;

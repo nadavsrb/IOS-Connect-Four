@@ -11,7 +11,9 @@ icon, works **offline**, and feels like a native app.
 
 - 🤖 **Vs Bot** — four difficulty levels (Easy / Medium / Hard / **Insane**). All purely
   algorithmic minimax with alpha-beta look-ahead (no ML) — Insane searches deepest and is
-  near-unbeatable.
+  near-unbeatable. A little **robot hand** hovers over the board on the bot's turn, slides to its
+  column and drops the disc — and it gets **scarier as the difficulty climbs** (a friendly green
+  helper on Easy, a red-eyed, horned, fanged nightmare on Insane).
 - 👥 **Two Players** — pass-and-play on one phone.
 - 🧩 **Puzzles** — a ladder of **50+ "play and win" puzzles** that get progressively harder (Warm-up →
   **Mastermind**, *win in 1* up to *win in 7+*). You're red; find the move that forces a win against the
