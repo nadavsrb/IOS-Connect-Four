@@ -469,6 +469,12 @@ function loadLastGame() {
 // against it and bail out if the game moved on (prevents phantom moves).
 let moveGen = 0;
 
+// May the exact bitboard solver be used for this variant? It plays standard
+// Connect Four, so in Pop-Out it would call positions "proven" that an opponent
+// pop can refute — wrong for the eval bar, the review and the bot's own move
+// choice alike. Pop-Out therefore stays on the heuristic estimate throughout.
+const exactOK = (variant) => variant !== 'popout';
+
 function prefersReducedMotion() {
   return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 }
@@ -888,7 +894,7 @@ function maybeBotMove() {
     if (gen !== moveGen || game.over || !game.active || game.current !== P2) return;
     setThinking(false);
     updateTurnIndicator(); // show "Bot's turn" (not "thinking") while the disc drops
-    const col = chooseMove(game.board, P2, game.difficulty);
+    const col = chooseMove(game.board, P2, game.difficulty, { exact: exactOK(game.variant) });
     if (col == null) {
       game.locked = false;
       hideBotRobot();
@@ -1402,7 +1408,7 @@ function renderEval(pct) {
 function updateEvalBar() {
   if (!prefs.showEval) return; // bar hidden — skip the (non-trivial) winChance compute
   if (!game.active || game.over) return; // final state is set by setEvalFinal()
-  renderEval(winChance(game.board, game.current, 6));
+  renderEval(winChance(game.board, game.current, 6, { exact: exactOK(game.variant) }));
 }
 
 function setEvalFinal(winner) {
@@ -1447,7 +1453,7 @@ function showHint() {
   if (!game.active || game.over || game.locked) return;
   if (game.mode === 'bot' && game.current === P2) return;
   clearHint();
-  const col = chooseMove(cloneBoard(game.board), game.current, 'insane');
+  const col = chooseMove(cloneBoard(game.board), game.current, 'insane', { exact: exactOK(game.variant) });
   if (col == null) return;
   const row = lowestEmptyRow(game.board, col);
   if (row < 0) return;
@@ -1579,7 +1585,7 @@ function evalAtReplayIndex(index) {
     if (d.winner === 'draw') return 50;
     return d.winner === P1 ? 100 : 0;
   }
-  return winChance(replay.boards[index], replayMoverAt(index), 6)[P1];
+  return winChance(replay.boards[index], replayMoverAt(index), 6, { exact: exactOK(d.variant) })[P1];
 }
 
 // Win-% bar for the replayed position. Reuses the review's cached number when
@@ -1773,7 +1779,7 @@ function showReplayHint() {
   if (!d || replay.index >= d.moves.length) return; // game over — no move to suggest
   const board = replay.boards[replay.index];
   const mover = replayMoverAt(replay.index);
-  const col = chooseMove(cloneBoard(board), mover, 'insane');
+  const col = chooseMove(cloneBoard(board), mover, 'insane', { exact: exactOK(d.variant) });
   if (col == null) return;
   const row = lowestEmptyRow(board, col);
   if (row < 0) return;

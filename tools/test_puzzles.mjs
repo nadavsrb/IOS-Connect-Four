@@ -44,6 +44,26 @@ function winningMovesP1(b) {
   return wins;
 }
 
+// P2's most-delaying replies: those minimising P1's score. Used to prove the
+// scripted opponent moves are a real best defence — without this a puzzle could
+// advertise "win in 3" while the opponent simply gave up early.
+function bestDefenceCols(b) {
+  let best = Infinity;
+  const scored = [];
+  for (const c of legalMoves(b)) {
+    const child = cloneBoard(b);
+    const l = dropDisc(child, c, P2);
+    if (checkWin(child, l.row, l.col)) return [c]; // P2 wins outright — nothing delays longer
+    const r = solve(child, P1);
+    if (!r) return null;
+    scored.push([c, r.score]);
+    if (r.score < best) best = r.score;
+  }
+  return scored.filter(([, s]) => s === best).map(([c]) => c);
+}
+
+const discCount = (b) => b.flat().filter((v) => v !== EMPTY).length;
+
 function anyFour(board) {
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
     if (board[r][c] !== EMPTY && checkWin(board, r, c)) return true;
@@ -94,12 +114,20 @@ for (const pz of PUZZLES) {
 
   // Walk the solution: each P1 move must be the UNIQUE winning move; opponent
   // replies must be legal; the final P1 move must complete four.
+  // The advertised mate distance, straight from the solver score. For P1 to move
+  // with `d` discs down and score `s`, the win lands on P1's (22 - d/2 - s)-th
+  // move — so this pins winIn exactly, independent of the line the generator chose.
+  const root = solve(board, P1);
+  ok(`${tag}: winIn matches the solver's exact mate distance`,
+    !!root && 22 - discCount(board) / 2 - root.score === pz.winIn);
+
   const b = cloneBoard(board);
   let cur = P1;
   let solutionOK = true;
   let uniqueOK = true;
   let repliesOK = true;
-  let reachedFour = false;
+  let defenceOK = true;
+  let wonAtStep = -1;
   for (let step = 0; step < pz.line.length; step++) {
     const col = pz.line[step];
     if (!legalMoves(b).includes(col)) { solutionOK = false; break; }
@@ -107,9 +135,11 @@ for (const pz of PUZZLES) {
       const wins = winningMovesP1(b);
       if (wins.length !== 1 || wins[0] !== col) uniqueOK = false;
       const l = dropDisc(b, col, P1);
-      if (checkWin(b, l.row, l.col)) { reachedFour = true; }
+      if (checkWin(b, l.row, l.col)) { wonAtStep = step; }
       cur = P2;
     } else {
+      const defences = bestDefenceCols(b);
+      if (!defences || !defences.includes(col)) defenceOK = false;
       dropDisc(b, col, P2);
       if (step === pz.line.length - 1) repliesOK = false; // line must end on P1's winning move
       cur = P1;
@@ -117,7 +147,10 @@ for (const pz of PUZZLES) {
   }
   ok(`${tag}: every move in the line is legal`, solutionOK);
   ok(`${tag}: each of your moves is the ONLY winning move`, uniqueOK);
-  ok(`${tag}: the line ends on your four-in-a-row`, reachedFour && repliesOK);
+  ok(`${tag}: the opponent always plays a best defence`, defenceOK);
+  // The four must land on the LAST move — not earlier, which would mean the
+  // stored line runs past the win and overstates winIn.
+  ok(`${tag}: the line ends on your four-in-a-row`, wonAtStep === pz.line.length - 1 && repliesOK);
 }
 
 ok('ids are sequential 1..N', idsSequential);

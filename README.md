@@ -10,9 +10,10 @@ icon, works **offline**, and feels like a native app.
 ## Features
 
 - 🤖 **Vs Bot** — four difficulty levels (Easy / Medium / Hard / **Insane**). All purely
-  algorithmic minimax with alpha-beta look-ahead (no ML) — Insane searches deepest. From the
-  endgame on, **Hard and Insane hand the decision to the exact solver**, so once the position is
-  small enough to solve they play *perfectly* and simply cannot be outplayed. A little **robot hand** hovers over the board on the bot's turn, slides to its
+  algorithmic minimax with alpha-beta look-ahead (no ML). **Insane** searches deepest *and* hands
+  the endgame to the exact solver, so once the position is small enough to solve it plays
+  perfectly and cannot be outplayed. **Hard** deliberately stays on plain search — deep, but
+  fallible, so there's still a real gap between the two. A little **robot hand** hovers over the board on the bot's turn, slides to its
   column and drops the disc with a synthesised servo click — and it gets **scarier as the difficulty
   climbs**: a friendly green helper chirping on Easy, an angry orange one on Hard, and on Insane a
   red-eyed, horned, fanged nightmare that drips, throws sparks off its claw and growls as it releases.
@@ -38,6 +39,8 @@ icon, works **offline**, and feels like a native app.
   pips and a match-winner celebration.
 - 🔄 **Pop-Out variant** — the official twist: on your turn you can drop, *or* pop one of
   your own bottom discs to slide a whole column down (it can even hand your opponent the win!).
+  The exact solver plays standard rules, so Pop-Out games deliberately keep the win-% bar, the
+  review and the bot on the heuristic search — a pop can refute anything the solver would "prove".
 - ⏱️ **Turn timer** (two-player) — optional 15 / 30 / 60s limit; the whole background slowly
   washes red past the ⅔ mark, and running out loses the round.
 - 🎨 **Themes** — switch between **Classic** (glossy blue cabinet — the default), **Neon**, and

@@ -17,7 +17,7 @@ import {
   isColumnFull,
   other,
 } from '../js/engine.js';
-import { chooseMove, winChance } from '../js/bot.js';
+import { chooseMove, winChance, __test } from '../js/bot.js';
 import { solveBoard } from '../js/solver.js';
 import { emptyHistory, recordGame, summarize, winRate } from '../js/stats.js';
 
@@ -33,6 +33,8 @@ function ok(name, cond) {
     console.error(`  ✗ ${name}`);
   }
 }
+
+const discCount = (b) => b.flat().filter((v) => v !== 0).length;
 
 // Helper: play a sequence of columns, alternating players unless forced.
 function playCols(board, cols, players) {
@@ -150,27 +152,76 @@ for (const diff of ['medium', 'hard', 'insane']) {
   ok(`${diff}: blocks the opponent at column 3`, move === 3);
 }
 
-console.log('Bot: hard never immediately loses over a full self-play game vs random');
+console.log('Bot: full self-play games hold every invariant');
 {
-  // Sanity: hard bot vs a random player, hard should not blunder into an avoidable
-  // immediate loss (i.e., after hard moves, random should not have an instant win it
-  // could have been blocked). Light check across a few games.
-  let clean = true;
-  for (let game = 0; game < 5 && clean; game++) {
-    const b = createBoard();
-    let turn = P1; // random player is P1, hard bot is P2
-    for (let ply = 0; ply < 42; ply++) {
-      const moves = legalMoves(b);
-      if (moves.length === 0) break;
-      let col;
-      if (turn === P1) col = moves[Math.floor(Math.random() * moves.length)];
-      else col = chooseMove(b, P2, 'hard');
-      const landing = dropDisc(b, col, turn);
-      if (checkWin(b, landing.row, landing.col)) break;
-      turn = turn === P1 ? P2 : P1;
+  // Play complete games of each difficulty against a random opponent and check
+  // the invariants that must hold on every single ply — not just that nothing
+  // threw. Also records results so we can assert the ladder actually gets harder.
+  const wins = {};
+  let alwaysLegal = true;
+  let oneDiscPerPly = true;
+  let winsAreReal = true;
+  let alwaysTerminated = true;
+  let blockedForced = true;
+
+  for (const diff of ['easy', 'medium', 'hard', 'insane']) {
+    wins[diff] = 0;
+    for (let g = 0; g < 12; g++) {
+      const b = createBoard();
+      let turn = P1; // random player is P1, the bot is P2
+      let finished = false;
+      for (let ply = 0; ply < 43 && !finished; ply++) {
+        const moves = legalMoves(b);
+        if (moves.length === 0) { finished = true; break; } // draw
+        const before = discCount(b);
+        let col;
+        if (turn === P1) {
+          col = moves[Math.floor(Math.random() * moves.length)];
+        } else {
+          // Before the bot moves, note whether it is facing a forced block.
+          const threat = (() => {
+            for (const c of legalMoves(b)) {
+              const t = cloneBoard(b);
+              const l = dropDisc(t, c, P1);
+              if (checkWin(t, l.row, l.col)) return c;
+            }
+            return null;
+          })();
+          col = chooseMove(b, P2, diff);
+          // medium and up must block a single immediate threat (unless they win now).
+          if (threat !== null && diff !== 'easy' && col !== threat) {
+            const t = cloneBoard(b);
+            const l = dropDisc(t, col, P2);
+            if (!checkWin(t, l.row, l.col)) blockedForced = false; // didn't block and didn't win
+          }
+        }
+        if (!moves.includes(col)) { alwaysLegal = false; break; }
+        const landing = dropDisc(b, col, turn);
+        if (discCount(b) !== before + 1) oneDiscPerPly = false;
+        const cells = checkWin(b, landing.row, landing.col);
+        if (cells) {
+          // The reported four must really be four of the mover's discs.
+          if (cells.length !== 4 || !cells.every(([r, c]) => b[r][c] === turn)) winsAreReal = false;
+          if (turn === P2) wins[diff]++;
+          finished = true;
+          break;
+        }
+        turn = other(turn);
+      }
+      if (!finished) alwaysTerminated = false;
     }
   }
-  ok('hard self-play completed without throwing', clean);
+
+  ok('every bot move is a legal column', alwaysLegal);
+  ok('each ply adds exactly one disc', oneDiscPerPly);
+  ok('every reported win is a genuine four', winsAreReal);
+  ok('every game reaches a terminal state', alwaysTerminated);
+  ok('medium and up always block a forced threat', blockedForced);
+  // Strength ladder: the stronger levels must beat a random opponent more often
+  // than easy does. (12 games each; easy is deliberately sloppy.)
+  ok('the difficulty ladder is monotonic vs random',
+    wins.insane >= wins.easy && wins.hard >= wins.easy && wins.medium >= wins.easy);
+  ok('hard and insane beat a random opponent nearly always', wins.hard >= 10 && wins.insane >= 10);
 }
 
 console.log('Engine: Pop-Out mechanics');
@@ -360,7 +411,6 @@ console.log('Stats: history aggregation');
 
 // --- Exact bitboard solver ----------------------------------------------------
 
-const discCount = (b) => b.flat().filter((v) => v !== 0).length;
 
 // Random non-terminal position with roughly `plies` discs (null if it ended early).
 function randomPos(plies) {
@@ -474,9 +524,11 @@ console.log('Bot: solver-backed endgame move choice');
   // achieve the best value from the mover's side.
   let checked = 0;
   let insaneOptimal = true;
-  let hardOptimal = true;
+  let hardLegal = true;
   let deterministic = true;
   let sawDecisive = false;
+  let exactBypassesSolver = true; // {exact:false} must route to plain minimax
+  let exactFlagMatters = false;   // ...and the two searches must genuinely differ somewhere
 
   for (let i = 0; i < 30000 && checked < 30; i++) {
     const b = randomPos(24 + Math.floor(Math.random() * 8));
@@ -500,15 +552,52 @@ console.log('Bot: solver-backed endgame move choice');
     const pick = chooseMove(cloneBoard(b), mover, 'insane');
     if (!optimal.includes(pick)) insaneOptimal = false;
     if (chooseMove(cloneBoard(b), mover, 'insane') !== pick) deterministic = false;
-    if (!optimal.includes(chooseMove(cloneBoard(b), mover, 'hard'))) hardOptimal = false;
+    // Hard deliberately stays on plain minimax — it must still be legal, but it
+    // is NOT required to be optimal (that's what separates it from Insane).
+    if (!legalMoves(b).includes(chooseMove(cloneBoard(b), mover, 'hard'))) hardLegal = false;
+    // Pop-Out forbids the solver, so `exact: false` must route to plain minimax.
+    // bestMinimaxMove breaks ties with Math.random, so freeze it to compare the
+    // two paths exactly rather than hoping they happen to disagree. Positions
+    // with an immediate win are skipped — chooseMove short-circuits those before
+    // either search runs, so they prove nothing either way.
+    if (best !== Infinity) {
+      const realRandom = Math.random;
+      Math.random = () => 0.42;
+      const viaFlag = chooseMove(cloneBoard(b), mover, 'insane', { exact: false });
+      const viaMinimax = __test.bestMinimaxMove(cloneBoard(b), mover, __test.INSANE_DEPTH);
+      Math.random = realRandom;
+      if (viaFlag !== viaMinimax) exactBypassesSolver = false;
+      if (viaFlag !== pick) exactFlagMatters = true; // the two searches really can differ
+    }
     if (best !== 0) sawDecisive = true;
     checked++;
   }
 
   ok('insane picks a provably optimal column in the endgame', insaneOptimal && checked >= 20);
-  ok('hard gets the same exact treatment', hardOptimal);
+  ok('hard stays on minimax and still plays legally', hardLegal);
   ok('the endgame choice is deterministic', deterministic);
   ok('the scan covered decided positions, not just draws', sawDecisive);
+  ok('exact:false routes insane to plain minimax', exactBypassesSolver);
+  ok('the solver and minimax really do pick differently somewhere', exactFlagMatters);
+}
+{
+  // The Pop-Out variant must never get solver-"proven" numbers: the solver plays
+  // standard rules, so a pop can refute what it calls a forced win. Scan endgame
+  // positions until the two paths disagree — if the flag were ignored they never
+  // would.
+  let differs = false;
+  let sums100 = true;
+  for (let i = 0; i < 30000 && !differs; i++) {
+    const b = randomPos(24 + Math.floor(Math.random() * 8));
+    if (!b || discCount(b) < 22) continue;
+    const m = discCount(b) % 2 === 0 ? P1 : P2;
+    const exact = winChance(b, m, 6);
+    const approx = winChance(b, m, 6, { exact: false });
+    if (exact[P1] + exact[P2] !== 100 || approx[P1] + approx[P2] !== 100) sums100 = false;
+    if (exact[P1] !== approx[P1]) differs = true;
+  }
+  ok('winChance exact:false skips the solver (differs somewhere)', differs);
+  ok('both eval paths still sum to 100', sums100);
 }
 {
   // A position the solver can't reach yet must fall back cleanly to minimax and

@@ -4,8 +4,10 @@
 //   medium – always wins/blocks when possible, avoids handing the opponent a win, plays the centre.
 //   hard   – minimax with alpha-beta pruning + a positional heuristic (genuinely tough).
 //   insane – the same minimax, searched deeper (near-unbeatable).
-// Both hard and insane hand the decision to the exact bitboard solver once the
-// position is small enough to solve, so neither errs in the endgame.
+// Insane alone hands the decision to the exact bitboard solver once the position
+// is small enough to solve, so it never errs in the endgame; hard stays a deep
+// but fallible search. The solver is skipped entirely in the Pop-Out variant,
+// whose rules it does not model (see the `exact` option).
 // Also exposes winChance(): an engine estimate of each side's chance to win, used by the eval bar.
 
 import {
@@ -265,9 +267,12 @@ function bestMinimaxMove(board, me, depth) {
  * @param {number[][]} board
  * @param {number} player   P1 or P2
  * @param {'easy'|'medium'|'hard'|'insane'} difficulty
+ * @param {{exact?: boolean}} [opts]  exact:false forbids the bitboard solver —
+ *   required in the Pop-Out variant, whose rules the solver does not model.
  * @returns {number|null} chosen column, or null if the board is full.
  */
-export function chooseMove(board, player, difficulty = 'medium') {
+export function chooseMove(board, player, difficulty = 'medium', opts = {}) {
+  const exactAllowed = opts.exact !== false;
   const moves = legalMoves(board);
   if (moves.length === 0) return null;
 
@@ -295,11 +300,14 @@ export function chooseMove(board, player, difficulty = 'medium') {
     return randomChoice(pool);
   }
 
-  // hard / insane — minimax, except once the position is small enough for the
-  // exact solver to pick the move, at which point the bot stops erring at all.
-  if (countDiscs(board) >= SOLVE_PICK_MIN_DISCS) {
-    const exact = bestSolvedMove(board, player);
-    if (exact !== null) return exact;
+  // Insane alone hands the endgame to the exact solver, so it stops erring
+  // entirely once the position is small enough to solve. Hard deliberately does
+  // not: it stays a deep-but-fallible search, which is what keeps the ladder
+  // meaningful — a perfect Hard would be indistinguishable from Insane for the
+  // whole second half of every game.
+  if (difficulty === 'insane' && exactAllowed && countDiscs(board) >= SOLVE_PICK_MIN_DISCS) {
+    const best = bestSolvedMove(board, player);
+    if (best !== null) return best;
   }
   return bestMinimaxMove(board, player, difficulty === 'insane' ? INSANE_DEPTH : HARD_DEPTH);
 }
@@ -384,15 +392,18 @@ function solvedProb(score, moves) {
  * extremes; everything else maps through a logistic and is clamped so those
  * extremes stay reserved for genuinely decided positions.
  *
+ * @param {{exact?: boolean}} [opts]  exact:false forbids the bitboard solver, so
+ *   the bar stays an estimate. Required in the Pop-Out variant: the solver plays
+ *   standard rules, so it would call positions "proven" that a pop can refute.
  * @returns {{1:number, 2:number}} integer percentages that sum to 100.
  */
-export function winChance(board, playerToMove, depth = 6) {
+export function winChance(board, playerToMove, depth = 6, opts = {}) {
   if (legalMoves(board).length === 0) return { [P1]: 50, [P2]: 50 };
   const opp = other(playerToMove);
 
   // Exact solver first: in the endgame the position solves exactly and fast, so
   // the bar reflects the true result under perfect play rather than an estimate.
-  if (countDiscs(board) >= SOLVE_MIN_DISCS) {
+  if (opts.exact !== false && countDiscs(board) >= SOLVE_MIN_DISCS) {
     const solved = solveBoard(board, playerToMove, { budget: SOLVE_BUDGET });
     if (solved) {
       const pMover = solvedProb(solved.score, solved.moves);
@@ -422,3 +433,8 @@ export function winChance(board, playerToMove, depth = 6) {
   const p1pct = Math.round(p1 * 100);
   return { [P1]: p1pct, [P2]: 100 - p1pct };
 }
+
+// Internals exposed for the unit tests only (mirrors solver.js's __test). Lets
+// the tests assert that `{ exact: false }` really falls back to plain minimax
+// rather than hoping to catch the two search paths disagreeing by chance.
+export const __test = { bestMinimaxMove, bestSolvedMove, HARD_DEPTH, INSANE_DEPTH, SOLVE_PICK_MIN_DISCS };
