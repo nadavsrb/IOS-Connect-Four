@@ -18,7 +18,7 @@ import {
   hasAnyMove,
   other,
 } from './engine.js';
-import { chooseMove, winChance } from './bot.js';
+import { chooseMove, choosePopoutMove, winChance } from './bot.js';
 import { emptyHistory, recordGame, summarize, winRate, DIFFICULTIES, DIFFICULTY_LABEL } from './stats.js';
 import { summarizeReview } from './review.js';
 import { PUZZLES } from './puzzles.js';
@@ -857,7 +857,7 @@ function positionBotRobot(col) {
 
 function showBotRobot() {
   if (!botRobot || game.mode !== 'bot') return;
-  botRobot.classList.remove('diff-easy', 'diff-medium', 'diff-hard', 'diff-insane', 'dropping');
+  botRobot.classList.remove('diff-easy', 'diff-medium', 'diff-hard', 'diff-insane', 'dropping', 'popping');
   botRobot.classList.add(`diff-${game.difficulty}`);
   positionBotRobot(botRobotCol); // hover above its last column (centre on the first turn)
   void botRobot.offsetWidth; // commit the position before fading in so it doesn't slide from 0,0
@@ -865,21 +865,26 @@ function showBotRobot() {
 }
 
 function hideBotRobot() {
-  if (botRobot) botRobot.classList.remove('is-active', 'dropping');
+  if (botRobot) botRobot.classList.remove('is-active', 'dropping', 'popping');
 }
 
-// Slide the robot over `col`, then open its claw and run `drop` as the disc falls.
-function botDropAt(col, drop) {
+// Slide the robot over `col`, then work its claw and run `act`. `kind` is 'drop'
+// or (Pop-Out only) 'pop' — a pop pulls a disc out from under the column instead
+// of releasing one, so the claw reaches down rather than opening.
+function botDropAt(col, act, kind = 'drop') {
   botRobotCol = col;
   positionBotRobot(col);
   const slide = prefersReducedMotion() ? 0 : 340;
   setTimeout(() => {
-    if (botRobot) botRobot.classList.add('dropping');
+    if (botRobot) botRobot.classList.add(kind === 'pop' ? 'popping' : 'dropping');
     sound.robot(game.difficulty); // claw servo, synced to the release
-    drop();
-    setTimeout(() => { if (botRobot) botRobot.classList.remove('dropping'); }, 340);
+    act();
+    setTimeout(() => { if (botRobot) botRobot.classList.remove('dropping', 'popping'); }, 340);
   }, slide);
 }
+
+// Wrap a plain column from the classic chooser as a Pop-Out-shaped move.
+const toDrop = (col) => (col == null ? null : { type: 'drop', col });
 
 function maybeBotMove() {
   if (game.mode !== 'bot' || game.over || !game.active) return;
@@ -895,16 +900,21 @@ function maybeBotMove() {
     if (gen !== moveGen || game.over || !game.active || game.current !== P2) return;
     setThinking(false);
     updateTurnIndicator(); // show "Bot's turn" (not "thinking") while the disc drops
-    const col = chooseMove(game.board, P2, game.difficulty, { exact: exactOK(game.variant) });
-    if (col == null) {
+    // Pop-Out is a different game, so it gets the variant-aware search — which can
+    // also decide to pop one of the bot's own bottom discs.
+    const move = game.variant === 'popout'
+      ? choosePopoutMove(game.board, P2, game.difficulty)
+      : toDrop(chooseMove(game.board, P2, game.difficulty, { exact: exactOK(game.variant) }));
+    if (!move || move.col == null) {
       game.locked = false;
       hideBotRobot();
       return;
     }
-    botDropAt(col, () => {
+    botDropAt(move.col, () => {
       if (gen !== moveGen || game.over || !game.active || game.current !== P2) return;
-      attemptDrop(col);
-    });
+      if (move.type === 'pop') attemptPop(move.col);
+      else attemptDrop(move.col);
+    }, move.type);
   }, delay);
 }
 
@@ -1448,14 +1458,31 @@ function clearHint() {
   }
   boardEl.querySelectorAll('.cell.hint').forEach((c) => c.classList.remove('hint'));
   boardEl.querySelectorAll('.disc.ghost').forEach((d) => d.remove());
+  boardEl.querySelectorAll('.disc.pop-hint').forEach((d) => d.classList.remove('pop-hint'));
 }
 
 function showHint() {
   if (!game.active || game.over || game.locked) return;
   if (game.mode === 'bot' && game.current === P2) return;
   clearHint();
-  const col = chooseMove(cloneBoard(game.board), game.current, 'insane', { exact: exactOK(game.variant) });
-  if (col == null) return;
+
+  // In Pop-Out the best move may be a pop, so ask the variant-aware search — the
+  // hint would otherwise recommend drops while the bot itself is popping.
+  const move = game.variant === 'popout'
+    ? choosePopoutMove(cloneBoard(game.board), game.current, 'insane')
+    : toDrop(chooseMove(cloneBoard(game.board), game.current, 'insane', { exact: exactOK(game.variant) }));
+  if (!move || move.col == null) return;
+
+  if (move.type === 'pop') {
+    // Mark the disc that should be pulled out from the bottom of the column.
+    for (let r = 0; r < ROWS; r++) cellAt(r, move.col).classList.add('hint');
+    const bottom = cellAt(ROWS - 1, move.col).querySelector('.disc');
+    if (bottom) bottom.classList.add('pop-hint');
+    hintTimer = setTimeout(clearHint, 2500);
+    return;
+  }
+
+  const col = move.col;
   const row = lowestEmptyRow(game.board, col);
   if (row < 0) return;
   for (let r = 0; r < ROWS; r++) cellAt(r, col).classList.add('hint');

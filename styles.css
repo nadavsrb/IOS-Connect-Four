@@ -893,6 +893,17 @@ body::before {
 .disc.ghost::before, .disc.ghost::after { display: none; }
 @keyframes ghostpulse { 50% { opacity: 0.28; } }
 
+/* Pop-Out hint: the suggested move is to pull THIS bottom disc out, so the disc
+   itself is ringed and nudged downward rather than a landing spot being ghosted. */
+.disc.pop-hint {
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.9), 0 0 14px 3px var(--disc);
+  animation: pophint 0.9s ease-in-out infinite;
+}
+@keyframes pophint {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(4px); }
+}
+
 /* Replay screen */
 .replay-caption { text-align: center; color: var(--text-dim); font-weight: 600; margin: 2px 0 0; }
 .replay-counter { text-align: center; color: var(--text-dim); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
@@ -1328,11 +1339,23 @@ body::before {
 .bot-robot.dropping .br-prong-l { transform: rotate(34deg); }
 .bot-robot.dropping .br-prong-r { transform: rotate(-34deg); }
 .bot-robot.dropping .br-body { animation: br-recoil 0.34s ease; }
+/* Pop-Out: instead of releasing a disc the claw clamps shut and yanks downward,
+   pulling one out from under the column. */
+.bot-robot.popping .br-prong-l { transform: rotate(2deg); }
+.bot-robot.popping .br-prong-r { transform: rotate(-2deg); }
+.bot-robot.popping .br-body { animation: br-yank 0.34s ease; }
 
 @keyframes br-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
 @keyframes br-recoil {
   0% { transform: translateY(0); }
   35% { transform: translateY(-7px) scale(1.04); }
+  100% { transform: translateY(0); }
+}
+/* Reach down, grab, haul back up. */
+@keyframes br-yank {
+  0% { transform: translateY(0); }
+  30% { transform: translateY(6px) scaleY(1.05); }
+  65% { transform: translateY(-8px) scaleY(0.96); }
   100% { transform: translateY(0); }
 }
 
@@ -1441,12 +1464,17 @@ body::before {
   animation: br-sparks 0.62s steps(4) infinite;
 }
 
-/* The release itself: a nastier lurch, a spark burst, an aura flash and eyes
-   flaring white-hot. */
+/* The move itself: a nastier lurch, a spark burst, an aura flash and eyes
+   flaring white-hot. Sparks and glare fire for a Pop-Out yank too — only the
+   body motion differs between releasing a disc and ripping one out. */
 .bot-robot.diff-insane.dropping .br-body { animation: br-recoil-insane 0.34s ease; }
-.bot-robot.diff-insane.dropping .br-claw::before { animation: br-spark-burst 0.34s ease-out; }
-.bot-robot.diff-insane.dropping::after { animation: br-aura-flash 0.34s ease-out; }
-.bot-robot.diff-insane.dropping .br-eye {
+.bot-robot.diff-insane.popping .br-body { animation: br-yank 0.34s ease; }
+.bot-robot.diff-insane.dropping .br-claw::before,
+.bot-robot.diff-insane.popping .br-claw::before { animation: br-spark-burst 0.34s ease-out; }
+.bot-robot.diff-insane.dropping::after,
+.bot-robot.diff-insane.popping::after { animation: br-aura-flash 0.34s ease-out; }
+.bot-robot.diff-insane.dropping .br-eye,
+.bot-robot.diff-insane.popping .br-eye {
   animation: none;
   box-shadow: 0 0 18px var(--glow), 0 0 7px #fff, 0 0 26px rgba(255, 20, 40, 0.9);
 }
@@ -1496,12 +1524,16 @@ body::before {
   .bot-robot.diff-hard.is-active .br-body,
   .bot-robot.diff-insane.is-active .br-body,
   .bot-robot.diff-insane.dropping .br-body,
+  .bot-robot.diff-insane.popping .br-body,
+  .bot-robot.popping .br-body,
   .bot-robot.diff-insane .br-eye,
   .bot-robot.diff-insane .br-head::before,
   .bot-robot.diff-insane .br-head::after,
   .bot-robot.diff-insane .br-claw::before,
   .bot-robot.diff-insane.dropping .br-claw::before,
+  .bot-robot.diff-insane.popping .br-claw::before,
   .bot-robot.diff-insane.dropping::after,
+  .bot-robot.diff-insane.popping::after,
   .bot-robot.diff-insane::after { animation: none; }
 }
 
@@ -1622,6 +1654,7 @@ body::before {
   .cell.shake { animation: none; }
   .cell.hint { animation: none; }
   .disc.ghost { animation: none; }
+  .disc.pop-hint { animation: none; }
   .disc.aim { animation: none; }
   .board.impact { animation: none; }
   .hero-disc { animation: none; }

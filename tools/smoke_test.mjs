@@ -212,6 +212,29 @@ try {
   ok('pop-mode clears after the move', !(await page.locator('#board').evaluate((el) => el.classList.contains('pop-mode'))));
   await page.screenshot({ path: `${SHOTS}/09-popout.png` });
 
+  // --- Pop-Out vs the bot: the variant-aware search must drive the bot's turn ---
+  // (That it *chooses* pops is covered deterministically by the Node unit tests;
+  // here we're checking the wiring — bot move → attemptDrop/attemptPop — holds.)
+  await goToMenu();
+  await page.locator('#btn-mode-bot').click();
+  await wait(200);
+  await page.locator('#difficulty .seg[data-diff="insane"]').click();
+  await wait(80);
+  await page.locator('#variant-select .seg[data-variant="popout"]').click();
+  await wait(80);
+  await page.locator('#btn-start').click();
+  await wait(400);
+  ok('Pop-Out vs bot offers the pop toggle', await page.locator('#btn-poptoggle').isVisible());
+  await page.locator('#board .cell[data-col="3"]').first().click();
+  await wait(2200); // think delay + robot slide + settle
+  ok('the bot replies in Pop-Out', (await page.locator('#board .disc').count()) >= 2);
+  ok('the bot is not left mid-animation', (await page.locator('#bot-robot.popping, #bot-robot.dropping').count()) === 0);
+  // The hint must use the pop-aware search here (it may suggest a drop or a pop).
+  await page.locator('#btn-hint').click();
+  await wait(250);
+  ok('the Pop-Out hint marks a drop or a pop',
+    (await page.locator('#board .disc.ghost').count()) + (await page.locator('#board .disc.pop-hint').count()) > 0);
+
   // --- Guard: resetting mid-animation must not corrupt the turn (stale callback) ---
   await goToMenu();
   await page.locator('#btn-mode-2p').click();

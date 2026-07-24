@@ -17,7 +17,7 @@ import {
   isColumnFull,
   other,
 } from '../js/engine.js';
-import { chooseMove, winChance, __test } from '../js/bot.js';
+import { chooseMove, choosePopoutMove, popoutMoves, applyPopoutMove, winChance, __test } from '../js/bot.js';
 import { solveBoard } from '../js/solver.js';
 import { emptyHistory, recordGame, summarize, winRate } from '../js/stats.js';
 
@@ -222,6 +222,126 @@ console.log('Bot: full self-play games hold every invariant');
   ok('the difficulty ladder is monotonic vs random',
     wins.insane >= wins.easy && wins.hard >= wins.easy && wins.medium >= wins.easy);
   ok('hard and insane beat a random opponent nearly always', wins.hard >= 10 && wins.insane >= 10);
+}
+
+console.log('Bot: Pop-Out variant search');
+{
+  // A pop can win outright by sliding a column down. Find a position where ONLY a
+  // pop wins (no drop does) and confirm the bot takes it — the old drop-only
+  // search could never have found these.
+  let foundPopWin = false;
+  let tookThePop = false;
+  for (let i = 0; i < 6000 && !foundPopWin; i++) {
+    const board = createBoard();
+    let cur = P1;
+    let live = true;
+    for (let k = 0; k < 16; k++) {
+      const m = legalMoves(board);
+      if (!m.length) break;
+      const l = dropDisc(board, m[Math.floor(Math.random() * m.length)], cur);
+      if (checkWin(board, l.row, l.col)) { live = false; break; }
+      cur = other(cur);
+    }
+    if (!live || findWinFor(board, P1) || findWinFor(board, P2)) continue;
+    const mover = discCount(board) % 2 === 0 ? P1 : P2;
+
+    const winningPop = popoutMoves(board, mover).find((mv) => {
+      if (mv.type !== 'pop') return false;
+      const t = cloneBoard(board);
+      return applyPopoutMove(t, mv, mover) === 'win';
+    });
+    if (!winningPop) continue;
+    // Skip positions where a drop also wins — those prove nothing about popping.
+    const dropWins = legalMoves(board).some((c) => {
+      const t = cloneBoard(board);
+      const l = dropDisc(t, c, mover);
+      return !!checkWin(t, l.row, l.col);
+    });
+    if (dropWins) continue;
+
+    foundPopWin = true;
+    const chosen = choosePopoutMove(cloneBoard(board), mover, 'hard');
+    const t = cloneBoard(board);
+    tookThePop = !!chosen && chosen.type === 'pop' && applyPopoutMove(t, chosen, mover) === 'win';
+  }
+  ok('found a position where only a POP wins', foundPopWin);
+  ok('the bot takes the winning pop', tookThePop);
+}
+{
+  // Never pop into your own defeat. Bottom row P1 P1 _ P1 with column 2 holding
+  // [P2 at the bottom, P1 above]: if P2 pops column 2 the P1 slides down and
+  // completes four for P1. (Same rule the engine tests cover from the other side.)
+  const b = createBoard();
+  b[ROWS - 1][0] = P1; b[ROWS - 1][1] = P1; b[ROWS - 1][3] = P1;
+  b[ROWS - 1][2] = P2; b[ROWS - 2][2] = P1;
+  const trap = cloneBoard(b);
+  ok('the trap pop really does hand P1 the win',
+    applyPopoutMove(trap, { type: 'pop', col: 2 }, P2) === 'loss');
+
+  let avoided = true;
+  for (const diff of ['medium', 'hard', 'insane']) {
+    for (let i = 0; i < 8; i++) {
+      const mv = choosePopoutMove(cloneBoard(b), P2, diff);
+      if (mv && mv.type === 'pop' && mv.col === 2) avoided = false;
+    }
+  }
+  ok('medium and up never play the losing pop', avoided);
+}
+{
+  // Full Pop-Out self-play: every move legal, games terminate, and the bot really
+  // does use pops rather than only ever dropping.
+  let legal = true;
+  let popsUsed = 0;
+  let terminated = true;
+  for (let g = 0; g < 8; g++) {
+    const board = createBoard();
+    let cur = P1;
+    let done = false;
+    for (let ply = 0; ply < 150 && !done; ply++) {
+      const moves = popoutMoves(board, cur);
+      if (moves.length === 0) { done = true; break; }
+      // Both sides use the pop-aware search: against a *random* opponent the bot
+      // just wins by dropping, so pops legitimately never pay and counting them
+      // there would prove nothing.
+      const mv = choosePopoutMove(cloneBoard(board), cur, 'hard');
+      if (!mv || !moves.some((m) => m.type === mv.type && m.col === mv.col)) { legal = false; done = true; break; }
+      if (mv.type === 'pop') popsUsed++;
+      if (applyPopoutMove(board, mv, cur) !== null) { done = true; break; }
+      cur = other(cur);
+    }
+    if (!done) terminated = false;
+  }
+  ok('every Pop-Out move the bot returns is legal', legal);
+  ok('Pop-Out self-play terminates', terminated);
+  ok('the bot really does pop against a real opponent', popsUsed > 0);
+}
+{
+  // The Pop-Out search must beat the old drop-only bot at its own variant.
+  let popAware = 0;
+  let dropOnly = 0;
+  for (let g = 0; g < 20; g++) {
+    const board = createBoard();
+    // P1 = pop-aware search, P2 = the classic drop-only chooser.
+    let cur = P1;
+    for (let ply = 0; ply < 150; ply++) {
+      const moves = popoutMoves(board, cur);
+      if (moves.length === 0) break;
+      let mv;
+      if (cur === P1) {
+        mv = choosePopoutMove(cloneBoard(board), P1, 'hard');
+      } else {
+        const col = chooseMove(cloneBoard(board), P2, 'hard', { exact: false });
+        mv = col == null ? moves[0] : { type: 'drop', col };
+        if (!moves.some((m) => m.type === 'drop' && m.col === col)) mv = moves[0];
+      }
+      const res = applyPopoutMove(board, mv, cur);
+      if (res === 'win') { if (cur === P1) popAware++; else dropOnly++; break; }
+      if (res === 'loss') { if (cur === P1) dropOnly++; else popAware++; break; }
+      if (res === 'draw') break;
+      cur = other(cur);
+    }
+  }
+  ok(`pop-aware search outplays the drop-only bot in Pop-Out (${popAware}-${dropOnly})`, popAware > dropOnly);
 }
 
 console.log('Engine: Pop-Out mechanics');

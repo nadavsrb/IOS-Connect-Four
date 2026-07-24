@@ -8,6 +8,9 @@
 // is small enough to solve, so it never errs in the endgame; hard stays a deep
 // but fallible search. The solver is skipped entirely in the Pop-Out variant,
 // whose rules it does not model (see the `exact` option).
+// The Pop-Out variant is a different game (you may pop your own bottom disc, and a
+// pop can complete four for either side), so it has its own search —
+// choosePopoutMove() — rather than being bolted onto the classic one.
 // Also exposes winChance(): an engine estimate of each side's chance to win, used by the eval bar.
 
 import {
@@ -18,6 +21,9 @@ import {
   EMPTY,
   cloneBoard,
   dropDisc,
+  popDisc,
+  canPop,
+  findWinFor,
   checkWin,
   legalMoves,
   isFull,
@@ -310,6 +316,134 @@ export function chooseMove(board, player, difficulty = 'medium', opts = {}) {
     if (best !== null) return best;
   }
   return bestMinimaxMove(board, player, difficulty === 'insane' ? INSANE_DEPTH : HARD_DEPTH);
+}
+
+// --- Pop-Out variant ----------------------------------------------------------
+// A different game, so it gets its own search. Moves are drops *or* pops of your
+// own bottom disc, and a pop slides a whole column down — which can complete four
+// for either player, or both at once (the official rule makes that a draw). The
+// classic search can't express any of that: it never pops, and it never sees the
+// opponent's pops coming either.
+
+const POPOUT_DEPTH = { easy: 0, medium: 2, hard: 4, insane: 6 };
+
+/** Every legal Pop-Out move for `player`, centre-out (drops first — better pruning). */
+export function popoutMoves(board, player) {
+  const moves = [];
+  for (const c of MOVE_ORDER) if (board[0][c] === EMPTY) moves.push({ type: 'drop', col: c });
+  for (const c of MOVE_ORDER) if (canPop(board, c, player)) moves.push({ type: 'pop', col: c });
+  return moves;
+}
+
+/**
+ * Apply `mv` to `board` (mutates) and report how it resolved for the mover:
+ * 'win' | 'loss' | 'draw' | null (game continues). Popping can hand the opponent
+ * a four — that's a loss for the mover — and making four for both at once is a draw.
+ */
+export function applyPopoutMove(board, mv, player) {
+  if (mv.type === 'drop') {
+    const l = dropDisc(board, mv.col, player);
+    if (!l) return null;
+    return checkWin(board, l.row, l.col) ? 'win' : null;
+  }
+  if (!popDisc(board, mv.col, player)) return null;
+  const mine = !!findWinFor(board, player);
+  const theirs = !!findWinFor(board, other(player));
+  if (mine && theirs) return 'draw';
+  if (mine) return 'win';
+  if (theirs) return 'loss';
+  return null;
+}
+
+// Negamax + alpha-beta over the Pop-Out move space. Terminal scores are offset by
+// the remaining depth so a faster win (or a slower loss) is preferred.
+function popoutSearch(board, player, depth, alpha, beta) {
+  const opp = other(player);
+  const moves = popoutMoves(board, player);
+  if (moves.length === 0) return 0; // no move at all — a draw
+  if (depth <= 0) return evaluate(board, player, opp);
+
+  let best = -Infinity;
+  for (const mv of moves) {
+    const b = cloneBoard(board);
+    const res = applyPopoutMove(b, mv, player);
+    let val;
+    if (res === 'win') val = WIN_SCORE + depth;
+    else if (res === 'loss') val = -WIN_SCORE - depth;
+    else if (res === 'draw') val = 0;
+    else val = -popoutSearch(b, opp, depth - 1, -beta, -alpha);
+    if (val > best) best = val;
+    if (best > alpha) alpha = best;
+    if (alpha >= beta) break; // this branch can't affect the result
+  }
+  return best;
+}
+
+// Would `mv` hand the opponent an immediate win (by drop or by pop)?
+function popoutGivesOpponentWin(board, mv, player) {
+  const b = cloneBoard(board);
+  if (applyPopoutMove(b, mv, player) !== null) return false; // already resolved
+  const opp = other(player);
+  for (const reply of popoutMoves(b, opp)) {
+    const c = cloneBoard(b);
+    if (applyPopoutMove(c, reply, opp) === 'win') return true;
+  }
+  return false;
+}
+
+/**
+ * Choose a Pop-Out move for `player`: `{ type: 'drop'|'pop', col }`, or null when
+ * there is no legal move. The exact solver is never involved — it plays standard
+ * rules, which a pop can refute.
+ *
+ * @param {number[][]} board
+ * @param {number} player
+ * @param {'easy'|'medium'|'hard'|'insane'} difficulty
+ */
+export function choosePopoutMove(board, player, difficulty = 'medium') {
+  const moves = popoutMoves(board, player);
+  if (moves.length === 0) return null;
+
+  // Win outright if we can. applyPopoutMove already rejects a pop that completes
+  // four for the opponent too (that scores 'draw' or 'loss', never 'win').
+  for (const mv of moves) {
+    const b = cloneBoard(board);
+    if (applyPopoutMove(b, mv, player) === 'win') return mv;
+  }
+
+  const safe = moves.filter((mv) => !popoutGivesOpponentWin(board, mv, player));
+
+  if (difficulty === 'easy') {
+    // Usually avoids the obvious disaster, but not always — that's the point.
+    if (safe.length && Math.random() < 0.7) return randomChoice(safe);
+    return randomChoice(moves);
+  }
+
+  const pool = safe.length ? safe : moves;
+  const depth = POPOUT_DEPTH[difficulty] ?? POPOUT_DEPTH.medium;
+
+  let best = -Infinity;
+  let bestMoves = [];
+  for (const mv of pool) {
+    const b = cloneBoard(board);
+    const res = applyPopoutMove(b, mv, player);
+    let val;
+    if (res === 'win') val = WIN_SCORE + depth; // (already handled above, kept for safety)
+    else if (res === 'loss') val = -WIN_SCORE - depth;
+    else if (res === 'draw') val = 0;
+    else val = -popoutSearch(b, other(player), depth - 1, -Infinity, Infinity);
+    if (val > best) { best = val; bestMoves = [mv]; }
+    else if (val === best) bestMoves.push(mv);
+  }
+  if (bestMoves.length === 0) return randomChoice(moves);
+
+  // Among equally-rated moves prefer a drop over a pop (popping for no gain just
+  // hands material back), then the most central column.
+  const drops = bestMoves.filter((m) => m.type === 'drop');
+  const tier = drops.length ? drops : bestMoves;
+  let closest = Infinity;
+  for (const m of tier) closest = Math.min(closest, Math.abs(3 - m.col));
+  return randomChoice(tier.filter((m) => Math.abs(3 - m.col) === closest));
 }
 
 // Gate for using the exact solver to *choose* a move rather than just to rate a

@@ -41,8 +41,11 @@ icon, works **offline**, and feels like a native app.
   pips and a match-winner celebration.
 - 🔄 **Pop-Out variant** — the official twist: on your turn you can drop, *or* pop one of
   your own bottom discs to slide a whole column down (it can even hand your opponent the win!).
-  The exact solver plays standard rules, so Pop-Out games deliberately keep the win-% bar, the
-  review and the bot on the heuristic search — a pop can refute anything the solver would "prove".
+  The bot plays this as its own game with a **dedicated pop-aware search**: it will pop when that's
+  the strongest move, it sees *your* pops coming, and it won't pop into a line that hands you the
+  win. The 💡 **Best move** hint is pop-aware too — it rings the disc to pull out. (The exact solver
+  plays standard rules, so Pop-Out keeps the win-% bar and the review on the heuristic search: a pop
+  can refute anything the solver would "prove".)
 - ⏱️ **Turn timer** (two-player) — optional 15 / 30 / 60s limit; the whole background slowly
   washes red past the ⅔ mark, and running out loses the round.
 - 🎨 **Themes** — switch between **Classic** (glossy blue cabinet — the default), **Neon**, and
