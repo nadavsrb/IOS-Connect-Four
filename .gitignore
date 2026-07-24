@@ -1,3 +1,7 @@
 node_modules/
 package-lock.json
 .DS_Store
+
+# Smoke-test screenshots (written to the repo root when run without an output dir)
+/0*.png
+/1*.png
