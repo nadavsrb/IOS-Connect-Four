@@ -417,6 +417,65 @@ try {
     ok('insane bot responds with a move', moved);
   }
 
+  // --- Losing to the bot: it eats the board, then the loss screen ---
+  // Keep feeding the two leftmost columns and Insane closes the game out fast.
+  // (This is the same insane round; no extra setup.)
+  {
+    // Watch for the win LINE, not the devour layer: the sequence only starts
+    // ~700ms after the game ends, and polling for it would keep clicking (and
+    // burning seconds in waitForHumanTurn) straight through that window — long
+    // enough for the whole 2.5s animation to finish before anything looked.
+    const ended = async () =>
+      (await page.locator('#board .disc.win').count()) === 4 ||
+      (await page.locator('#overlay-result.is-open').count()) > 0;
+    const myTurn = async () => {
+      for (let i = 0; i < 60; i++) {
+        if (await ended()) return false;
+        const t = (await page.locator('#turn-text').textContent()) || '';
+        if (/You/.test(t) && !(await page.locator('#turn-indicator.thinking').count())) return true;
+        await wait(120);
+      }
+      return false;
+    };
+    // Stacking the two leftmost columns can never make four (Insane blocks the
+    // third every time), so the bot always closes this out.
+    for (const c of [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1]) {
+      if (!(await myTurn())) break;
+      await page.locator(`#board .cell[data-col="${c}"]`).first().click();
+      await wait(620);
+    }
+    for (let i = 0; i < 80; i++) { if (await ended()) break; await wait(200); }
+    const devoured = await page.locator('#devour.is-open').waitFor({ timeout: 5000 }).then(() => true, () => false);
+    ok('losing to the bot opens the devour sequence', devoured);
+    ok('the maw is skinned for the level you lost to',
+      ((await page.locator('#devour').getAttribute('class')) || '').includes('diff-insane'));
+    ok('the board is drawn into the mouth', await page.locator('#board').evaluate((el) => el.classList.contains('is-eaten')));
+    await page.locator('#devour.jaws-open').waitFor({ timeout: 4000 }).catch(() => {});
+    // No extra wait: a full-page capture at 3x costs ~half a second on its own,
+    // which lands this shot near the end of the 0.6s opening.
+    await page.screenshot({ path: `${SHOTS}/13-devour-jaws.png` });
+    ok('the jaws open before biting', (await page.locator('#devour.jaws-open').count()) === 1);
+    await page.locator('#devour.chomp').waitFor({ timeout: 4000 }).catch(() => {});
+    await wait(150);
+    await page.screenshot({ path: `${SHOTS}/13b-devour-chomp.png` });
+    ok('the jaws snap shut', (await page.locator('#devour.chomp').count()) === 1);
+
+    await page.locator('#overlay-result.is-open').waitFor({ timeout: 8000 });
+    await wait(500);
+    ok('the result card comes up in its loss skin',
+      await page.locator('#overlay-result').evaluate((el) => el.classList.contains('is-loss')));
+    ok('the headline names the defeat, not the winner',
+      /Nibbled|Swallowed|Crunched|DEVOURED/.test((await page.locator('#result-title').textContent()) || ''));
+    ok('the maw is gone once the card is up', (await page.locator('#devour.is-open').count()) === 0);
+    await page.screenshot({ path: `${SHOTS}/13c-devour-card.png` });
+    // A new round has to put the board back — the swallow must not persist.
+    await page.locator('#btn-playagain').click();
+    await waitForOpening();
+    await wait(300);
+    ok('a new round un-eats the board', !(await page.locator('#board').evaluate((el) => el.classList.contains('is-eaten'))));
+    ok('the loss skin is dropped with the overlay', (await page.locator('#overlay-result.is-loss.is-open').count()) === 0);
+  }
+
   // --- Replay last game ---
   await goToMenu();
   await page.locator('#btn-mode-2p').click();
@@ -577,23 +636,38 @@ try {
   ok('a failed puzzle is not recorded as solved',
     !(JSON.parse((await page.evaluate(() => localStorage.getItem('c4.puzzles.v1'))) || '{}').solved || []).includes(pz1.id));
 
-  // --- The losing sequence: colour drains, ash falls, a cracked disc fades up ---
+  // --- The losing sequence: the board sags and drains, the dark closes in, ash
+  //     and grit fall, and a cracked disc splits apart on the card ---
   ok('the board drains of colour on a loss', (await page.locator('#puzzle-board.is-lost').count()) === 1);
   ok('ash drifts down over the lost board', (await page.locator('#puzzle-ash .ash-fleck').count()) > 0);
+  ok('some of the fall is grit, not just ash', (await page.locator('#puzzle-ash .ash-fleck.long').count()) > 0);
+  ok('the dark closes in on the board', (await page.locator('#puzzle-gloom.is-on').count()) === 1);
+  // Every disc has to carry its own sag delay, or the collapse happens in one
+  // flat step instead of rolling up the board.
+  const sagged = await page.locator('#puzzle-board .disc').evaluateAll(
+    (els) => els.filter((e) => e.style.getPropertyValue('--sag')).length);
+  ok('each disc sags on its own beat', sagged > 0 && sagged === (await pzDiscs()));
+  await page.screenshot({ path: `${SHOTS}/13-puzzle-drain.png` });
   await page.locator('#puzzle-lost.is-open').waitFor({ timeout: 4000 });
   ok('the loss card fades up', (await page.locator('#puzzle-lost.is-open').count()) === 1);
   ok('the loss card names what went wrong',
     /out of moves/i.test((await page.locator('#pl-title').textContent()) || '') &&
     ((await page.locator('#pl-sub').textContent()) || '').length > 10);
+  ok('the cracked disc is in two halves that can come apart',
+    (await page.locator('#puzzle-lost .pl-half').count()) === 2);
+  await wait(900); // let the split finish before capturing it
   await page.screenshot({ path: `${SHOTS}/13b-puzzle-lost.png` });
 
   // Retry from the card clears the whole losing state, not just the board.
   await page.locator('#pl-retry').click();
   await wait(600);
-  ok('retry clears the loss card and ash',
+  ok('retry clears the loss card, ash and gloom',
     (await page.locator('#puzzle-lost.is-open').count()) === 0 &&
     (await page.locator('#puzzle-board.is-lost').count()) === 0 &&
+    (await page.locator('#puzzle-gloom.is-on').count()) === 0 &&
     (await page.locator('#puzzle-ash .ash-fleck').count()) === 0);
+  ok('retry clears the per-disc sag delays', (await page.locator('#puzzle-board .disc').evaluateAll(
+    (els) => els.filter((e) => e.style.getPropertyValue('--sag')).length)) === 0);
 
   ok('retry restores the starting position', (await pzDiscs()) === preset);
   ok('retry restores the move budget', /1 move left/.test((await page.locator('#puzzle-moves').textContent()) || ''));
@@ -643,29 +717,17 @@ try {
   ok('timer is visible in two-player mode', !(await page.locator('#turn-timer').evaluate((el) => el.hidden)));
   const t1 = (await page.locator('#turn-timer').textContent()) || '';
   const toSec = (s) => { const [m, ss] = s.split(':').map(Number); return m * 60 + ss; };
-  const dangerNow = () => page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--danger')) || 0);
   await page.screenshot({ path: `${SHOTS}/06-timer.png` });
   await wait(2500);
   const t2 = (await page.locator('#turn-timer').textContent()) || '';
   ok('countdown decreases while running', toSec(t2) < toSec(t1));
-  ok('background not red before 2/3 elapsed', (await dangerNow()) === 0);
-  // Poll for the wash rather than sampling once after a fixed delay. It only exists
-  // between the 2/3 mark and the end of the round (~5s of a 15s clock) and is
-  // cleared the instant the round ends, so a slow run could sample past the window
-  // and see 0 — which looked like the wash was broken when it wasn't.
-  let reddened = false;
-  for (let i = 0; i < 45; i++) {
-    if ((await dangerNow()) > 0) { reddened = true; break; }
-    if (await page.locator('#overlay-result.is-open').count()) break; // expired already
-    await wait(300);
-  }
-  ok('background reddens after 2/3 elapsed', reddened);
-  await page.screenshot({ path: `${SHOTS}/06b-timer-red.png` });
+  // The clock used to wash the whole background red as it ran down. That's gone —
+  // urgency lives in the pill alone now, so nothing outside it may go red.
+  ok('no full-screen red wash element exists', (await page.locator('#danger-tint').count()) === 0);
   // let the rest expire (no move)
-  await page.locator('#overlay-result.is-open').waitFor({ timeout: 12000 }).catch(() => {});
+  await page.locator('#overlay-result.is-open').waitFor({ timeout: 16000 }).catch(() => {});
   ok('timeout opens the result overlay', await page.locator('#overlay-result').evaluate((el) => el.classList.contains('is-open')));
   ok('timeout message shown', /ran out of time/.test((await page.locator('#result-sub').textContent()) || ''));
-  ok('red wash cleared once the game ended', (await dangerNow()) === 0);
   const statsAfter = JSON.parse(await page.evaluate(() => localStorage.getItem('c4.stats.v1')));
   // Whoever the toss put on the clock is the one who ran out, so the win goes to
   // the other seat.

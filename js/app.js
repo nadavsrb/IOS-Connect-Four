@@ -232,13 +232,36 @@ const sound = (() => {
         tone(880, 0.14, 'sine', 0.03, 0.2, 1320); // friendly little chirp instead
       }
     },
-    // Losing a puzzle: a slow descending minor figure that sags at the end, then a
-    // soft low thud. The deliberate opposite of win()'s rising arpeggio.
+    // Losing: a slow descending minor figure that sags at the end, a soft low
+    // thud, and a long sub-bass tail that outlives the notes so the silence after
+    // it feels heavy. The deliberate opposite of win()'s rising arpeggio.
     lose() {
       tone(392, 0.34, 'triangle', 0.09, 0, 370); // G4, sagging
       tone(311, 0.4, 'triangle', 0.085, 0.26, 294); // E♭4
       tone(233, 0.7, 'sine', 0.075, 0.58, 196); // B♭3 → G3, the sigh
       noise(0.22, 0.025, 190, 0.6); // dull thud underneath
+      tone(58, 2.4, 'sine', 0.05, 0.5, 41); // the long tail sinking out from under it
+    },
+    // The crack that runs through the disc as it splits — brittle, not percussive.
+    crack() {
+      noise(0.05, 0.05, 3200);
+      noise(0.09, 0.035, 1400, 0.04);
+      tone(1180, 0.06, 'square', 0.02, 0.01, 640);
+    },
+    // The bot's jaws meeting. A crunch is a lot of splintering at once over a big
+    // low impact, so: broadband noise stacked on a subsonic drop.
+    crunch(difficulty) {
+      const heavy = difficulty === 'hard' || difficulty === 'insane';
+      noise(0.14, heavy ? 0.11 : 0.07, 900);
+      noise(0.3, heavy ? 0.07 : 0.04, 220, 0.02);
+      tone(heavy ? 46 : 70, 0.7, 'sine', heavy ? 0.14 : 0.09, 0, heavy ? 26 : 42);
+      if (heavy) tone(63, 0.5, 'sawtooth', 0.05, 0.01, 33); // detuned against it — a growl inside the bite
+    },
+    // The jaws sliding in before the bite: a rising, tightening dread.
+    jaws(difficulty) {
+      tone(70, 1.0, 'sawtooth', difficulty === 'easy' ? 0.02 : 0.055, 0, difficulty === 'insane' ? 150 : 108);
+      noise(0.9, 0.022, 420, 0.05);
+      if (difficulty === 'insane') tone(101, 0.95, 'square', 0.028, 0.02, 143); // beating against the sweep
     },
     // The toss landing on whoever goes first: a short rising two-note flourish.
     reveal() {
@@ -381,7 +404,9 @@ function haptic(pattern) {
 
 // ---------------------------------------------------------------- DOM refs
 
+const appEl = $('#app');
 const boardEl = $('#board');
+const devourEl = $('#devour');
 const botRobot = $('#bot-robot');
 const turnIndicator = $('#turn-indicator');
 const turnDot = $('#turn-dot');
@@ -463,6 +488,7 @@ const puzzlePromptText = $('#puzzle-prompt-text');
 const puzzleStatusEl = $('#puzzle-status');
 const puzzleMovesEl = $('#puzzle-moves');
 const puzzleAshLayer = $('#puzzle-ash');
+const puzzleGloomEl = $('#puzzle-gloom');
 const puzzleLostEl = $('#puzzle-lost');
 const plTitle = $('#pl-title');
 const plSub = $('#pl-sub');
@@ -531,7 +557,6 @@ function prefersReducedMotion() {
 let timerInterval = null;
 let timerDeadline = 0;
 let lastTickSecond = -1;
-const DANGER_MAX = 0.8; // peak opacity of the red "time running out" background wash
 
 const colorFor = (player) => game.colors[player];
 
@@ -756,6 +781,7 @@ function resetRoundState(intro = null) {
   moveGen++; // invalidate any in-flight move callbacks from the previous round
   stopTurnTimer();
   hideBotRobot();
+  clearDevour();
   game.board = createBoard();
   game.current = game.startingPlayer;
   game.active = true;
@@ -1179,10 +1205,100 @@ function endGame(winner, cells, reason) {
   renderScores();
   renderSeries();
   if (cells) highlightWin(cells, winner); // timeout wins have no line to highlight
+
+  // Losing to the bot doesn't get the winner's treatment. The machine eats the
+  // board instead, and the result card comes up in its loss skin afterwards.
+  if (game.mode === 'bot' && winner === P2) {
+    haptic([30, 120, 30, 120, 60]);
+    setTimeout(() => runDevour(() => showResult(winner, reason, matchOver)), cells ? 700 : 350);
+    return;
+  }
+
   burstConfetti();
   sound.win();
   haptic([30, 30, 30, 30, 140]);
   setTimeout(() => showResult(winner, reason, matchOver), cells ? 850 : 450);
+}
+
+// ---------------------------------------------------------------- getting eaten
+
+// Headlines for losing to the bot, escalating with the difficulty. They replace
+// the neutral "<name> wins!" so a loss reads as a loss.
+const DEVOUR_TITLE = { easy: 'Nibbled', medium: 'Swallowed', hard: 'Crunched', insane: 'DEVOURED' };
+const DEVOUR_SUB = {
+  easy: 'Even the friendly one got hungry.',
+  medium: 'It saw the fork coming. You did not.',
+  hard: 'It had the position read three moves before you played it.',
+  insane: 'It knew how this ended before you sat down.',
+};
+
+// Bumped whenever the sequence is torn down, so staged steps from an abandoned
+// game can't fire onto the next one (same pattern as moveGen / puzzle.gen).
+let devourGen = 0;
+
+// The claw that has been politely dropping discs all game stops being polite:
+// the board is drawn in and drained, two jaws slide in from the top and bottom,
+// hold open long enough for you to see what's coming, then snap shut and chew.
+// `done` runs once the mouth is closed and the result card should take over.
+function runDevour(done) {
+  const diff = game.difficulty;
+  if (!devourEl || prefersReducedMotion()) {
+    sound.lose();
+    done();
+    return;
+  }
+
+  const gen = ++devourGen;
+  const alive = () => devourGen === gen;
+  const at = (ms, fn) => setTimeout(() => { if (alive()) fn(); }, ms);
+
+  devourEl.className = `devour diff-${diff}`;
+  void devourEl.offsetWidth; // commit the reset before the transitions start
+  devourEl.classList.add('is-open');
+  boardEl.classList.add('is-eaten'); // the position gets pulled in and drained
+  devourEl.setAttribute('aria-hidden', 'false');
+  sound.jaws(diff);
+  haptic([12, 60, 16, 60, 20]);
+
+  at(60, () => devourEl.classList.add('jaws-open')); // jaws slide in, eyes light up
+  at(1050, () => {
+    devourEl.classList.add('chomp'); // teeth interlock over what's left of the board
+    sound.crunch(diff);
+    haptic([90, 40, 50]);
+    quake();
+  });
+  at(1330, () => devourEl.classList.add('chew')); // two smaller bites after the first
+  at(2150, () => {
+    devourEl.classList.add('sealed'); // jaws finally meet; the screen goes dark
+    sound.lose(); // the sad figure lands as the card comes up
+  });
+  at(2480, () => {
+    devourEl.classList.remove('is-open'); // maw fades out under the result overlay
+    devourEl.setAttribute('aria-hidden', 'true');
+    done();
+  });
+}
+
+// One hard kick of the whole app, restartable (the class has to come off before
+// it can be re-added or the animation won't replay).
+function quake() {
+  appEl.classList.remove('quake');
+  void appEl.offsetWidth;
+  appEl.classList.add('quake');
+  appEl.addEventListener('animationend', () => appEl.classList.remove('quake'), { once: true });
+}
+
+// Cancel the sequence and put the board back. `is-eaten` deliberately survives
+// runDevour itself — the board stays swallowed behind the result card — so only
+// this clears it, on the way into a new round or back to the menu.
+function clearDevour() {
+  devourGen++;
+  if (devourEl) {
+    devourEl.className = 'devour';
+    devourEl.setAttribute('aria-hidden', 'true');
+  }
+  boardEl.classList.remove('is-eaten');
+  appEl.classList.remove('quake');
 }
 
 function highlightWin(cells, winner) {
@@ -1329,6 +1445,8 @@ function resultSub(winner) {
 function showResult(winner, reason, matchOver) {
   const disc = $('#result-disc');
   const series = game.matchTarget > 1;
+  const eaten = game.mode === 'bot' && winner === P2; // you lost to the machine
+  overlay.classList.toggle('is-loss', eaten);
 
   if (winner === 'draw') {
     disc.className = 'result-disc draw';
@@ -1342,7 +1460,14 @@ function showResult(winner, reason, matchOver) {
     disc.className = 'result-disc';
     disc.style.setProperty('--disc', colorFor(winner));
     const name = game.names[winner];
-    if (series && matchOver) {
+    if (eaten) {
+      // Name the defeat rather than the victor — this is your loss screen.
+      $('#result-title').textContent = DEVOUR_TITLE[game.difficulty] || DEVOUR_TITLE.medium;
+      $('#result-sub').textContent = series
+        ? `${name} takes the ${matchOver ? 'match' : 'round'} — series ${game.series[1]}–${game.series[2]}.`
+        : DEVOUR_SUB[game.difficulty] || DEVOUR_SUB.medium;
+      resultPrimaryAction = matchOver ? 'newmatch' : series ? 'next' : 'again';
+    } else if (series && matchOver) {
       $('#result-title').textContent = `🏆 ${name} wins the match!`;
       $('#result-sub').textContent = `Match won ${game.series[winner]}–${game.series[other(winner)]}.`;
       resultPrimaryAction = 'newmatch';
@@ -1386,6 +1511,7 @@ function goMenu() {
   hideBotIntro();
   clearHint();
   hideBotRobot();
+  clearDevour();
   game.active = false;
   game.over = false;
   game.locked = false;
@@ -1423,7 +1549,6 @@ function stopTurnTimer() {
   turnTimerBar.hidden = true;
   turnTimerEl.setAttribute('aria-hidden', 'true');
   turnIndicator.classList.remove('urgent');
-  document.documentElement.style.setProperty('--danger', '0'); // clear the red wash
 }
 
 function tickTimer() {
@@ -1432,12 +1557,9 @@ function tickTimer() {
   turnTimerEl.textContent = formatClock(remaining);
   turnTimerBar.style.width = `${Math.max(0, Math.min(1, remainingMs / (game.timerSeconds * 1000))) * 100}%`;
 
-  // From 2/3 elapsed onward, slowly wash the whole background red — the closer
-  // to zero, the deeper the red (0 → DANGER_MAX opacity).
-  const elapsedFrac = 1 - remainingMs / (game.timerSeconds * 1000);
-  const danger = Math.max(0, Math.min(1, (elapsedFrac - 2 / 3) / (1 / 3)));
-  document.documentElement.style.setProperty('--danger', (danger * DANGER_MAX).toFixed(3));
-
+  // Urgency stays inside the timer pill (number + bar turn red under 5s). An
+  // earlier version also washed the whole background red as the clock ran down;
+  // it read as an error state rather than tension, so it's gone.
   const urgent = remaining <= 5 && remainingMs > 0;
   turnIndicator.classList.toggle('urgent', urgent);
   if (urgent && remaining !== lastTickSecond) {
@@ -1597,26 +1719,29 @@ function spawnAsh(count, layer) {
 
   for (let i = 0; i < count; i++) {
     const el = document.createElement('i');
-    el.className = 'ash-fleck';
+    // Every third fleck is an elongated streak falling faster and straighter, so
+    // the fall reads as grit coming off the board rather than snow.
+    const streak = i % 3 === 0;
+    el.className = streak ? 'ash-fleck long' : 'ash-fleck';
     const size = 2 + Math.random() * 3;
-    el.style.width = `${size}px`;
-    el.style.height = `${size}px`;
+    el.style.width = `${streak ? Math.max(1.2, size * 0.5) : size}px`;
+    el.style.height = `${streak ? size * 4 : size}px`;
     el.style.left = `${Math.random() * width}px`;
     layer.appendChild(el);
     flecks.push({
       el,
       y: -10 - Math.random() * height * 0.5,
-      vy: 0.35 + Math.random() * 0.5, // slow — this is falling ash, not confetti
-      sway: 6 + Math.random() * 12,
+      vy: (streak ? 0.9 : 0.35) + Math.random() * 0.5, // slow — this is falling ash, not confetti
+      sway: streak ? 2 : 6 + Math.random() * 12,
       phase: Math.random() * Math.PI * 2,
       drift: 0.6 + Math.random() * 1.4,
-      peak: 0.4 + Math.random() * 0.45,
-      delay: Math.random() * 700,
+      peak: (streak ? 0.25 : 0.4) + Math.random() * 0.45,
+      delay: Math.random() * 1100,
     });
   }
 
   const start = performance.now();
-  const LIFE = 2600;
+  const LIFE = 3400;
   function frame(now) {
     const t = now - start;
     for (const f of flecks) {
@@ -2440,8 +2565,9 @@ function updatePuzzleMoves() {
 }
 
 // Losing sequence, built as the mirror of the win: the win bursts colour outward,
-// this drains it away. The board desaturates and the discs sag, ash drifts down,
-// and a cracked disc fades up with the reason. `title` is the short headline.
+// this drains it away. The board desaturates and the discs sag one by one, the
+// dark closes in from the edges, ash and grit drift down, and a cracked disc
+// splits apart on the loss card. `title` is the short headline.
 function puzzleFail(reason, title = 'Out of moves') {
   puzzle.failed = true;
   puzzle.busy = false;
@@ -2452,13 +2578,15 @@ function puzzleFail(reason, title = 'Out of moves') {
   setPuzzleStatus(title, 'bad');
 
   const gen = puzzle.gen;
+  staggerPuzzleSag();
   puzzleBoardEl.classList.add('is-lost'); // colour drains out of the position
   sound.lose();
   haptic([26, 90, 22, 90, 30]); // slow and heavy, not the sharp buzz of a rejection
 
   setTimeout(() => {
     if (puzzle.gen !== gen) return;
-    spawnAsh(34, puzzleAshLayer);
+    puzzleGloomEl?.classList.add('is-on'); // the dark starts closing in
+    spawnAsh(42, puzzleAshLayer);
   }, 180);
 
   setTimeout(() => {
@@ -2467,12 +2595,38 @@ function puzzleFail(reason, title = 'Out of moves') {
     if (plSub) plSub.textContent = reason;
     puzzleLostEl.classList.add('is-open');
     puzzleLostEl.setAttribute('aria-hidden', 'false');
-  }, 520);
+  }, 780);
+
+  // Timed to the disc splitting apart on the card (0.3s animation delay + the
+  // shudder before it gives), so the crack you hear is the crack you see.
+  setTimeout(() => {
+    if (puzzle.gen !== gen) return;
+    sound.crack();
+    haptic(18);
+  }, 1180);
+}
+
+// Give every disc its own beat to sag on, bottom row first, so the position
+// visibly gives up in a wave instead of dropping all at once. A little random
+// tilt keeps the collapse from looking mechanical.
+function staggerPuzzleSag() {
+  puzzleBoardEl.querySelectorAll('.cell').forEach((cell, i) => {
+    const disc = cell.querySelector('.disc');
+    if (!disc) return;
+    const row = Math.floor(i / COLS);
+    disc.style.setProperty('--sag', `${(ROWS - 1 - row) * 0.07 + Math.random() * 0.09}s`);
+    disc.style.setProperty('--tilt', `${(Math.random() * 2 - 1) * 2.4}deg`);
+  });
 }
 
 // Clear everything the losing sequence put on screen (used when re-entering).
 function clearPuzzleLoss() {
   puzzleBoardEl.classList.remove('is-lost');
+  puzzleBoardEl.querySelectorAll('.disc').forEach((d) => {
+    d.style.removeProperty('--sag');
+    d.style.removeProperty('--tilt');
+  });
+  puzzleGloomEl?.classList.remove('is-on');
   if (puzzleAshLayer) puzzleAshLayer.innerHTML = '';
   if (puzzleLostEl) {
     puzzleLostEl.classList.remove('is-open');
@@ -2805,6 +2959,7 @@ function wire() {
   pzHintBtn.addEventListener('click', puzzleHint);
   pzRetryBtn.addEventListener('click', retryPuzzle);
   $('#pl-retry')?.addEventListener('click', retryPuzzle); // the one on the loss card
+  $('#pl-back')?.addEventListener('click', openPuzzles);
   pzNextBtn.addEventListener('click', nextPuzzle);
   wirePuzzleBoard();
 
@@ -2915,7 +3070,7 @@ function wire() {
 
 wire();
 
-// The fixed background layers (styles.css: body::before, #danger-tint) used to be
+// The fixed neon background layer (styles.css: body::before) used to be
 // sized from a JS-measured pixel height (--app-vh) because CSS viewport units
 // could resolve short on an iOS standalone PWA's first paint. They now size
 // themselves with `inset: 0` + `min-height: 100lvh`, which is resolved by layout

@@ -19,9 +19,6 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <!-- Red "time running out" wash; opacity driven by the turn timer (see app.js) -->
-  <div id="danger-tint" aria-hidden="true"></div>
-
   <div id="app" class="app">
 
     <!-- ================= MENU ================= -->
@@ -228,6 +225,23 @@
       <!-- Confetti burst layer (populated by JS on a win) -->
       <div id="confetti" aria-hidden="true"></div>
 
+      <!-- Losing to the bot: the machine drops the polite act, rears up over the
+           board and eats it. Skinned per difficulty from the same palette as
+           #bot-robot, so the thing that swallows you is the thing you played. -->
+      <div id="devour" class="devour" aria-hidden="true">
+        <span class="dv-gloom"></span>
+        <div class="dv-maw">
+          <span class="dv-eye dv-eye-l"></span>
+          <span class="dv-eye dv-eye-r"></span>
+          <div class="dv-jaw dv-jaw-top">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+          <div class="dv-jaw dv-jaw-bot">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+        </div>
+      </div>
+
       <!-- Opponent reveal (vs Bot only): boots the machine up before the toss and
            gets more menacing with the difficulty. The robot itself is cloned from
            #bot-robot at runtime so the skins live in one place. -->
@@ -411,13 +425,8 @@
         <div id="puzzle-board" class="board" role="grid" aria-label="Puzzle board"></div>
         <!-- Ash drifting down over a lost puzzle (the opposite of the win confetti) -->
         <div id="puzzle-ash" aria-hidden="true"></div>
-        <!-- Loss card: fades up over the greyed-out board -->
-        <div id="puzzle-lost" class="puzzle-lost" aria-hidden="true">
-          <span class="pl-disc" aria-hidden="true"></span>
-          <p class="pl-title" id="pl-title">Out of moves</p>
-          <p class="pl-sub" id="pl-sub"></p>
-          <button id="pl-retry" class="btn btn-primary btn-sm">Try again</button>
-        </div>
+        <!-- Dark closing in from the edges of the board once it's lost -->
+        <span id="puzzle-gloom" class="puzzle-gloom" aria-hidden="true"></span>
       </div>
 
       <p class="puzzle-status" id="puzzle-status" aria-live="polite">&nbsp;</p>
@@ -430,6 +439,23 @@
 
       <!-- Confetti burst layer for a solved puzzle -->
       <div id="puzzle-confetti" aria-hidden="true"></div>
+
+      <!-- Loss panel. Covers the whole screen rather than just the board, so a
+           failed puzzle lands with the same weight as losing a game. -->
+      <div id="puzzle-lost" class="loss-screen" aria-hidden="true">
+        <div class="loss-card">
+          <span class="pl-disc" aria-hidden="true">
+            <i class="pl-half pl-half-l"></i>
+            <i class="pl-half pl-half-r"></i>
+          </span>
+          <p class="loss-title" id="pl-title">Out of moves</p>
+          <p class="loss-sub" id="pl-sub"></p>
+          <div class="loss-actions">
+            <button id="pl-retry" class="btn btn-primary btn-wide">Try again</button>
+            <button id="pl-back" class="btn btn-ghost btn-wide">Puzzle list</button>
+          </div>
+        </div>
+      </div>
     </section>
 
   </div>

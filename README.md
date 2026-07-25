@@ -25,9 +25,11 @@ icon, works **offline**, and feels like a native app.
   You're red, and you play it out properly: **drop wherever you like** and the opponent answers with
   its **strongest defence, solved live** — not a scripted reply. You get exactly as many moves as the
   position's true mate distance, so a move that merely *keeps* the win instead of taking the fastest
-  one costs you the puzzle. Run the budget out, or let the opponent get four first, and the board
-  **drains to grey, the discs sag and ash drifts down** over a quiet falling three-note figure before
-  the card tells you how it slipped away — Retry and go again.
+  one costs you the puzzle. Run the budget out, or let the opponent get four first, and you get the
+  **losing screen**: the board drains to grey and the discs sag in a wave rolling up from the bottom
+  row, the dark closes in from the edges, ash and grit drift down, and a cracked disc **splits in
+  two** over a falling three-note figure and a long sub-bass tail — then the card tells you how it
+  slipped away. Retry and go again.
   The 💡 hint is solved from the position in front of you and tells you how deep
   the win is from there. **Every puzzle is unlocked from the start** — play them in any order — and the
   list marks the ones you've solved, with progress saved on-device. Every puzzle was **generated and proven correct by the bitboard solver** offline
@@ -50,6 +52,13 @@ icon, works **offline**, and feels like a native app.
   difficulty** — a mint-green helper chirping "Go easy on me, okay?" on Easy, an angry orange one on
   Hard, and on **Insane** a red-eyed fanged nightmare behind a throbbing crimson vignette, screen
   glitch and subsonic growl telling you it has already seen every move you have. Tap to skip.
+- 🦷 **Getting eaten** — lose to the bot and it stops being a polite little claw. The board drains
+  and is pulled inward, two jaws slide in from the top and bottom of the screen and hold open — eyes
+  glowing in the dark, your position sitting inside the mouth — then **snap shut**, interlocking
+  their teeth over it with a crunch, a screen kick and two more bites for good measure. The **losing
+  screen** that follows names the defeat rather than the winner (*Nibbled · Swallowed · Crunched ·
+  **DEVOURED***) and shows the winner's disc with a bite taken out of it. The maw is skinned from the
+  same palette as the robot you played, so Easy nibbles and Insane fills the screen with red.
 - 🎲 **Coin toss for the first move** — who opens is decided by a **random toss** with an animated
   roll: the highlight ping-pongs between the two players, slowing down until it lands on one of
   them. Within a match the starter then **alternates each round**, so the opening advantage evens
@@ -64,8 +73,8 @@ icon, works **offline**, and feels like a native app.
   win. The 💡 **Best move** hint is pop-aware too — it rings the disc to pull out. (The exact solver
   plays standard rules, so Pop-Out keeps the win-% bar and the review on the heuristic search: a pop
   can refute anything the solver would "prove".)
-- ⏱️ **Turn timer** (two-player) — optional 15 / 30 / 60s limit; the whole background slowly
-  washes red past the ⅔ mark, and running out loses the round.
+- ⏱️ **Turn timer** (two-player) — optional 15 / 30 / 60s limit. The countdown and its bar go red
+  under 5 seconds; running out loses the round.
 - 🎨 **Themes** — switch between **Classic** (glossy blue cabinet — the default), **Neon**, and
   **Minimal** (light, flat). The board is drawn as a real moulded cabinet with drilled holes.
 - 🏆 **Scoreboard** — win/draw tallies that persist between sessions.
