@@ -46,12 +46,37 @@ async function goToMenu() {
     await wait(200);
   }
 }
+// The who-goes-first toss locks the board while it plays out; wait for it to
+// finish before trying to move. (It never swallows clicks — the board is guarded
+// by game.locked — but a click during it is simply ignored.)
+async function waitForToss() {
+  for (let i = 0; i < 80; i++) {
+    if (!(await page.locator('#toss.is-open').count())) return;
+    await wait(80);
+  }
+}
+// Which player the toss handed the first move to, read off the turn indicator.
+async function starterSeat() {
+  const t = (await page.locator('#turn-text').textContent()) || '';
+  return /Player 2/.test(t) ? 2 : 1;
+}
+// In bot mode the toss can hand the opening move to the BOT, in which case the
+// board stays locked until it has played. Wait until it's the human's turn.
+async function waitForHumanTurn() {
+  for (let i = 0; i < 60; i++) {
+    const t = (await page.locator('#turn-text').textContent()) || '';
+    if (/You/.test(t) && !(await page.locator('#turn-indicator.thinking').count())) return;
+    await wait(120);
+  }
+}
+
 async function start2p(timer) {
   await goToMenu();
   await page.locator('#btn-mode-2p').click();
   await wait(200);
   if (timer != null) await page.locator(`#timer-select .seg[data-timer="${timer}"]`).click();
   await page.locator('#btn-start').click();
+  await waitForToss();
   await wait(300);
 }
 
@@ -89,11 +114,14 @@ try {
   await page.locator('#timer-select .seg[data-timer="0"]').click();
   await page.screenshot({ path: `${SHOTS}/02-setup.png` });
   await page.locator('#btn-start').click();
+  await waitForToss();
   await wait(300);
   ok('game board has 42 cells', (await page.locator('#board .cell').count()) === 42);
 
-  // Bottom-row plan: P1 -> 0,1,2,3 ; P2 -> 0,1,2 (stacked above)
-  // First P1 move via the aim preview: press-and-hold shows a ghost in the landing
+  // Bottom-row plan: the FIRST mover takes 0,1,2,3 and wins; the second stacks on
+  // 0,1,2. Who that is depends on the toss, so record it up front.
+  const firstMover = await starterSeat();
+  // First move via the aim preview: press-and-hold shows a ghost in the landing
   // hole, releasing drops the disc.
   {
     const cell0 = await page.locator('#board .cell[data-col="0"]').first().boundingBox();
@@ -107,13 +135,13 @@ try {
       (await page.locator('#board .disc.aim').count()) === 0 && (await discCount()) === 1);
   }
   ok('exactly one last-move marker after a move', (await page.locator('#board .disc.last').count()) === 1);
-  await dropAt(0); // P2
-  await dropAt(1); // P1
+  await dropAt(0); // second player
+  await dropAt(1); // first player
   await page.screenshot({ path: `${SHOTS}/03-discs.png` }); // eyeball the flat disk look
-  await dropAt(1); // P2
-  await dropAt(2); // P1
-  await dropAt(2); // P2
-  await page.locator('#board .cell[data-col="3"]').first().click(); // winning P1 move
+  await dropAt(1); // second player
+  await dropAt(2); // first player
+  await dropAt(2); // second player
+  await page.locator('#board .cell[data-col="3"]').first().click(); // first mover's winning move
   await wait(900);
   ok('confetti bursts on win', (await page.locator('#confetti .confetti-piece').count()) > 0);
   await wait(800);
@@ -122,12 +150,16 @@ try {
   ok('result overlay opened', await page.locator('#overlay-result').evaluate((el) => el.classList.contains('is-open')));
   ok('result announces a winner', /wins!/.test((await page.locator('#result-title').textContent()) || ''));
   await page.screenshot({ path: `${SHOTS}/04-win.png` });
-  ok('player 1 win recorded', JSON.parse(await page.evaluate(() => localStorage.getItem('c4.stats.v1')))['1'] === 1);
+  ok("the first mover's win is recorded against the right seat",
+    JSON.parse(await page.evaluate(() => localStorage.getItem('c4.stats.v1')))[String(firstMover)] === 1);
 
-  // Alternate start: Play Again should hand the first move to Player 2
+  // Play Again on a standalone game is a fresh contest, so it re-rolls the toss.
   await page.locator('#btn-playagain').click();
-  await wait(300);
-  ok('alternate start — Player 2 goes first next round', /Player 2/.test((await page.locator('#turn-text').textContent()) || ''));
+  await wait(200);
+  ok('Play Again rolls a fresh toss', (await page.locator('#toss.is-open').count()) === 1);
+  await waitForToss();
+  ok('the toss announced who goes first', /goes first/.test((await page.locator('#toss-result').textContent()) || ''));
+  ok('play resumes with a valid starter', [1, 2].includes(await starterSeat()));
 
   // --- Full-column shake: filling a column then tapping it drops nothing ---
   await start2p(0);
@@ -143,7 +175,9 @@ try {
   await wait(200);
   await page.locator('#difficulty .seg[data-diff="hard"]').click();
   await page.locator('#btn-start').click();
+  await waitForToss();
   await wait(300);
+  await waitForHumanTurn(); // the toss may have given the bot the opening move
   const before = await discCount();
   await page.locator('#board .cell[data-col="3"]').first().click();
   let botMoved = false;
@@ -171,16 +205,26 @@ try {
   await page.locator('#variant-select .seg[data-variant="classic"]').click();
   await page.locator('#match-select .seg[data-match="2"]').click(); // best of 3 → first to 2
   await page.locator('#btn-start').click();
+  await waitForToss();
   await wait(300);
   ok('series pips shown for a best-of match', !(await page.locator('#series-line').evaluate((el) => el.hidden)));
-  await firstMoverWins(); // round 1 → P1
+  const r1Starter = await starterSeat(); // rolled by the toss
+  await firstMoverWins(); // round 1 → the starter
   ok('round win offers Next Round', ((await page.locator('#btn-playagain').textContent()) || '').includes('Next Round'));
   await page.locator('#btn-playagain').click();
-  await wait(400);
-  await firstMoverWins(); // round 2 → P2 (alternate start)
+  await wait(300);
+  // Within a match the starter ALTERNATES rather than being re-rolled, so the
+  // next round is announced (no spinning) and hands the first move to the other seat.
+  ok('the next round announces its starter', /goes first/.test((await page.locator('#toss-result').textContent()) || ''));
+  await waitForToss();
+  const r2Starter = await starterSeat();
+  ok('the starter alternates between rounds of a match', r2Starter === (r1Starter === 1 ? 2 : 1));
+  await firstMoverWins(); // round 2 → the other seat
   await page.locator('#btn-playagain').click();
-  await wait(400);
-  await firstMoverWins(); // round 3 → P1 reaches 2 → match
+  await wait(300);
+  await waitForToss();
+  ok('round 3 alternates back', (await starterSeat()) === r1Starter);
+  await firstMoverWins(); // round 3 → r1Starter reaches 2 → match
   ok('match completes with a match win', /wins the match/.test((await page.locator('#result-title').textContent()) || ''));
   ok('match win offers New Match', ((await page.locator('#btn-playagain').textContent()) || '').includes('New Match'));
   await page.screenshot({ path: `${SHOTS}/08-match.png` });
@@ -193,6 +237,7 @@ try {
   await page.locator('#variant-select .seg[data-variant="popout"]').click();
   await page.locator('#match-select .seg[data-match="1"]').click();
   await page.locator('#btn-start').click();
+  await waitForToss();
   await wait(300);
   ok('pop toggle visible in Pop-Out', !(await page.locator('#btn-poptoggle').evaluate((el) => el.hidden)));
   // Stack col 0: P1 (bottom), then P2 on top. Back to P1's turn.
@@ -223,11 +268,14 @@ try {
   await page.locator('#variant-select .seg[data-variant="popout"]').click();
   await wait(80);
   await page.locator('#btn-start').click();
+  await waitForToss();
   await wait(400);
   ok('Pop-Out vs bot offers the pop toggle', await page.locator('#btn-poptoggle').isVisible());
+  await waitForHumanTurn();
+  const popBefore = await page.locator('#board .disc').count();
   await page.locator('#board .cell[data-col="3"]').first().click();
   await wait(2200); // think delay + robot slide + settle
-  ok('the bot replies in Pop-Out', (await page.locator('#board .disc').count()) >= 2);
+  ok('the bot replies in Pop-Out', (await page.locator('#board .disc').count()) > popBefore);
   ok('the bot is not left mid-animation', (await page.locator('#bot-robot.popping, #bot-robot.dropping').count()) === 0);
   // The hint must use the pop-aware search here (it may suggest a drop or a pop).
   await page.locator('#btn-hint').click();
@@ -243,12 +291,18 @@ try {
   await page.locator('#variant-select .seg[data-variant="classic"]').click();
   await page.locator('#match-select .seg[data-match="1"]').click();
   await page.locator('#btn-start').click();
+  await waitForToss();
   await wait(300);
-  await page.locator('#board .cell[data-col="0"]').first().click(); // P1 drops (still animating)
+  const preResetStarter = await starterSeat(); // rolled, so not necessarily P1
+  await page.locator('#board .cell[data-col="0"]').first().click(); // drops (still animating)
   await wait(110);
   await page.locator('#btn-newround').click(); // reset before the drop settles
   await wait(800); // the stale drop callback fires here and must be ignored
-  ok('reset mid-animation keeps the correct turn', /Player 2/.test((await page.locator('#turn-text').textContent()) || ''));
+  await waitForToss();
+  // New Round alternates the starter, and the stale drop callback must not have
+  // advanced the turn on top of that.
+  ok('reset mid-animation keeps the correct turn',
+    (await starterSeat()) === (preResetStarter === 1 ? 2 : 1));
   ok('reset mid-animation leaves an empty board', (await discCount()) === 0);
 
   // --- Eval bar + best-move hint (2-player, classic) ---
@@ -259,6 +313,7 @@ try {
   await page.locator('#variant-select .seg[data-variant="classic"]').click();
   await page.locator('#match-select .seg[data-match="1"]').click();
   await page.locator('#btn-start').click();
+  await waitForToss();
   await wait(300);
   // The win-% bar is hidden by default — reveal it with the toggle.
   ok('eval bar hidden by default', !(await page.locator('#eval').evaluate((el) => el.classList.contains('is-on'))));
@@ -289,8 +344,10 @@ try {
   ok('4 difficulty options incl. Insane', (await page.locator('#difficulty .seg').count()) === 4);
   await page.locator('#difficulty .seg[data-diff="insane"]').click();
   await page.locator('#btn-start').click();
+  await waitForToss();
   await wait(300);
   {
+    await waitForHumanTurn();
     const before = await discCount();
     await page.locator('#board .cell[data-col="3"]').first().click();
     let moved = false;
@@ -309,6 +366,7 @@ try {
   await page.locator('#variant-select .seg[data-variant="classic"]').click();
   await page.locator('#match-select .seg[data-match="1"]').click();
   await page.locator('#btn-start').click();
+  await waitForToss();
   await wait(300);
   for (const c of [0, 0, 1, 1, 2, 2, 3]) await dropAt(c, 520); // P1 wins across the bottom
   await wait(1200);
@@ -471,6 +529,7 @@ try {
   // --- Turn timer: 15s countdown then timeout loss (slowest, do last) ---
   const statsBefore = JSON.parse(await page.evaluate(() => localStorage.getItem('c4.stats.v1')));
   await start2p(15);
+  const timedOutSeat = await starterSeat(); // whoever the toss put on the clock first
   ok('timer is visible in two-player mode', !(await page.locator('#turn-timer').evaluate((el) => el.hidden)));
   const t1 = (await page.locator('#turn-timer').textContent()) || '';
   const toSec = (s) => { const [m, ss] = s.split(':').map(Number); return m * 60 + ss; };
@@ -491,7 +550,11 @@ try {
   ok('timeout message shown', /ran out of time/.test((await page.locator('#result-sub').textContent()) || ''));
   ok('red wash cleared once the game ended', (await dangerNow()) === 0);
   const statsAfter = JSON.parse(await page.evaluate(() => localStorage.getItem('c4.stats.v1')));
-  ok('opponent (Player 2) awarded the timeout win', statsAfter['2'] === (statsBefore['2'] || 0) + 1);
+  // Whoever the toss put on the clock is the one who ran out, so the win goes to
+  // the other seat.
+  const timeoutWinner = String(timedOutSeat === 1 ? 2 : 1);
+  ok(`the opponent of the timed-out player wins (seat ${timeoutWinner})`,
+    statsAfter[timeoutWinner] === (statsBefore[timeoutWinner] || 0) + 1);
   await page.screenshot({ path: `${SHOTS}/07-timeout.png` });
 
   ok('no console/page errors during run', consoleErrors.length === 0);

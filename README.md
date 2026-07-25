@@ -37,6 +37,11 @@ icon, works **offline**, and feels like a native app.
   **accuracy score** per player, and tappable chips for the moves that gave ground ("Move 12 ·
   Player 2 −48%") — tap one to jump to just before it and see what should have been played instead.
   Drag the curve to scrub. All computed on-device by the same solver, no ML, no network.
+- 🎲 **Coin toss for the first move** — who opens is decided by a **random toss** with an animated
+  roll: the highlight ping-pongs between the two players, slowing down until it lands on one of
+  them. Within a match the starter then **alternates each round**, so the opening advantage evens
+  out over a series (later rounds announce the starter instead of re-rolling). The board stays
+  locked and the turn clock doesn't start until the toss lands.
 - 🏅 **Match series** — play a single game, **Best of 3**, or **Best of 5**, with series
   pips and a match-winner celebration.
 - 🔄 **Pop-Out variant** — the official twist: on your turn you can drop, *or* pop one of

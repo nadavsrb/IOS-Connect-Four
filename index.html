@@ -228,6 +228,26 @@
       <!-- Confetti burst layer (populated by JS on a win) -->
       <div id="confetti" aria-hidden="true"></div>
 
+      <!-- Who-goes-first toss: the highlight ping-pongs between the two players,
+           slowing down until it lands on the one who starts. -->
+      <div id="toss" class="toss" aria-hidden="true">
+        <div class="toss-card">
+          <p class="toss-title" id="toss-title">Who goes first?</p>
+          <div class="toss-sides">
+            <div class="toss-side" id="toss-side-1">
+              <span class="toss-disc"></span>
+              <span class="toss-name" id="toss-name-1"></span>
+            </div>
+            <span class="toss-vs">vs</span>
+            <div class="toss-side" id="toss-side-2">
+              <span class="toss-disc"></span>
+              <span class="toss-name" id="toss-name-2"></span>
+            </div>
+          </div>
+          <p class="toss-result" id="toss-result" aria-live="polite"></p>
+        </div>
+      </div>
+
       <!-- Result overlay -->
       <div id="overlay-result" class="overlay" aria-hidden="true">
         <div class="result-card">

@@ -216,6 +216,11 @@ const sound = (() => {
     tick() {
       tone(760, 0.045, 'sine', 0.045);
     },
+    // The toss landing on whoever goes first: a short rising two-note flourish.
+    reveal() {
+      tone(660, 0.12, 'triangle', 0.07, 0, 880);
+      tone(990, 0.16, 'sine', 0.06, 0.1, 1180);
+    },
     // The bot's claw opening to release its disc. Deliberately in a different
     // register from drop() so the two layer instead of muddying, and it gets
     // heavier/nastier as the difficulty climbs.
@@ -398,6 +403,12 @@ const rpHintBtn = $('#rp-hint');
 const replayEvalP1 = $('#replay-eval-p1');
 const replayEvalP2 = $('#replay-eval-p2');
 const replayEvalLabel = $('#replay-eval-label');
+
+const tossEl = $('#toss');
+const tossTitle = $('#toss-title');
+const tossResult = $('#toss-result');
+const tossSides = { [P1]: $('#toss-side-1'), [P2]: $('#toss-side-2') };
+const tossNames = { [P1]: $('#toss-name-1'), [P2]: $('#toss-name-2') };
 
 const reviewEl = $('#review');
 const reviewProgress = $('#review-progress');
@@ -683,7 +694,7 @@ function startGame(mode) {
   game.timerSeconds = mode === '2p' ? selectedTimer : 0; // timer is two-player only
   game.matchTarget = selectedMatch;
   game.series = { 1: 0, 2: 0 };
-  game.startingPlayer = P1; // a brand-new match always starts with Player 1
+  game.startingPlayer = rollStartingPlayer(); // coin toss for the opening round
   game.names[1] = name1.value.trim() || name1.placeholder;
   game.names[2] = name2.value.trim() || name2.placeholder;
   game.colors[1] = selectedColor[1];
@@ -691,12 +702,20 @@ function startGame(mode) {
   document.documentElement.style.setProperty('--p1', game.colors[1]);
   document.documentElement.style.setProperty('--p2', game.colors[2]);
 
-  resetRoundState();
+  resetRoundState('toss');
   renderScores();
   showScreen('screen-game', 'fwd');
 }
 
-function resetRoundState() {
+// Which player opens a brand-new match. Only ever called for the first round —
+// after that the starter alternates so the advantage evens out over a series.
+const rollStartingPlayer = () => (Math.random() < 0.5 ? P1 : P2);
+
+// `intro` is 'toss' (a random roll — first round of a match), 'announce' (the
+// starter is already decided by alternation, just show it), or null (no intro,
+// e.g. the mid-animation reset guard). During an intro the board is locked and
+// the turn timer hasn't started, so nobody loses time to the animation.
+function resetRoundState(intro = null) {
   moveGen++; // invalidate any in-flight move callbacks from the previous round
   stopTurnTimer();
   hideBotRobot();
@@ -718,19 +737,118 @@ function resetRoundState() {
   updateEvalBar();
   renderSeries();
   closeOverlay();
+
+  if (intro) {
+    const gen = moveGen;
+    game.locked = true; // no input while the toss plays out
+    updateUndoBtn();
+    updateHintBtn();
+    runStartIntro(intro, () => {
+      if (gen !== moveGen || !game.active) return; // round was reset / left mid-intro
+      game.locked = false;
+      updateUndoBtn();
+      updateHintBtn();
+      startTurnTimer();
+      maybeBotMove();
+    });
+    return;
+  }
+
   startTurnTimer();
   maybeBotMove(); // handles the case where the bot is the starting player this round
 }
 
+// --- Who goes first ------------------------------------------------------------
+// The starter is rolled for the first round of a match and then alternates. The
+// overlay makes that visible either way: 'toss' ping-pongs a highlight between
+// the two players, decelerating until it lands on the winner; 'announce' just
+// reveals whose turn it is this round.
+const TOSS_FLIPS = 11;
+let tossGen = 0;
+
+function hideToss() {
+  tossGen++; // abandon any roll still in flight
+  if (tossEl) tossEl.classList.remove('is-open');
+}
+
+function runStartIntro(mode, done) {
+  if (!tossEl) { done(); return; }
+  const gen = ++tossGen; // a new roll supersedes any previous one mid-flight
+  const winner = game.startingPlayer;
+  const loser = other(winner);
+
+  tossNames[1].textContent = game.names[1];
+  tossNames[2].textContent = game.names[2];
+  tossSides[1].style.setProperty('--disc', game.colors[1]);
+  tossSides[2].style.setProperty('--disc', game.colors[2]);
+  tossSides[1].classList.remove('is-lit', 'is-winner', 'is-loser');
+  tossSides[2].classList.remove('is-lit', 'is-winner', 'is-loser');
+  tossTitle.textContent = mode === 'toss' ? 'Who goes first?' : `Round ${game.series[1] + game.series[2] + 1}`;
+  tossResult.textContent = '';
+  tossEl.classList.add('is-open');
+
+  const land = () => {
+    if (gen !== tossGen) return; // superseded — don't touch the newer roll's UI
+    tossSides[winner].classList.remove('is-lit');
+    tossSides[loser].classList.remove('is-lit');
+    tossSides[winner].classList.add('is-winner');
+    tossSides[loser].classList.add('is-loser');
+    tossResult.textContent = `${game.names[winner]} goes first`;
+    sound.reveal();
+    haptic([8, 30, 12]);
+    setTimeout(() => {
+      if (gen !== tossGen) return; // a newer roll owns the overlay now
+      tossEl.classList.remove('is-open');
+      done();
+    }, 780);
+  };
+
+  // Reduced motion (or an announce with no suspense to build): straight to it.
+  if (mode !== 'toss' || prefersReducedMotion()) {
+    setTimeout(land, mode === 'toss' ? 120 : 260);
+    return;
+  }
+
+  // Alternate the highlight, slowing as it goes. The starting side is chosen so
+  // the last flip lands on the winner.
+  const first = (TOSS_FLIPS - 1) % 2 === 0 ? winner : loser;
+  let i = 0;
+  const flip = () => {
+    if (gen !== tossGen) return; // superseded
+    const lit = i % 2 === 0 ? first : other(first);
+    tossSides[lit].classList.add('is-lit');
+    tossSides[other(lit)].classList.remove('is-lit');
+    sound.tick();
+    i++;
+    if (i >= TOSS_FLIPS) { setTimeout(land, 180); return; }
+    setTimeout(flip, 60 + i * i * 2.6); // ease out: 60ms → ~320ms
+  };
+  flip();
+}
+
+// Next round of a series: the starter alternates, so the opening advantage evens
+// out over the match. Announced rather than re-rolled — it isn't random.
+function nextRound() {
+  game.startingPlayer = other(game.startingPlayer);
+  resetRoundState('announce');
+}
+
+// Replay the round currently in progress (the ⟳ button). Same starter — it's the
+// same round, so re-rolling or alternating would change the terms mid-round.
 function restartRound() {
-  game.startingPlayer = other(game.startingPlayer); // alternate who goes first each round
-  resetRoundState();
+  resetRoundState('announce');
+}
+
+// A fresh standalone game after one finishes: a new contest, so roll again.
+function playAgain() {
+  game.startingPlayer = rollStartingPlayer();
+  resetRoundState('toss');
 }
 
 function newMatch() {
   game.series = { 1: 0, 2: 0 };
-  game.startingPlayer = P1;
-  resetRoundState();
+  game.startingPlayer = rollStartingPlayer(); // fresh match → fresh toss
+  resetRoundState('toss');
 }
 
 function humanPlay(col) {
@@ -1119,8 +1237,9 @@ function showResult(winner, reason, matchOver) {
 }
 
 function onResultPrimary() {
-  if (resultPrimaryAction === 'newmatch') newMatch();
-  else restartRound(); // 'next' keeps the series (alternating start); 'again' is a fresh single game
+  if (resultPrimaryAction === 'newmatch') newMatch(); // fresh match → fresh toss
+  else if (resultPrimaryAction === 'next') nextRound(); // same match → alternate
+  else playAgain(); // standalone game → roll again
 }
 
 function closeOverlay() {
@@ -1134,6 +1253,7 @@ function goMenu() {
   stopTurnTimer();
   stopReplayPlay();
   resetReview(); // cancel any in-flight analysis
+  hideToss(); // and any toss still rolling
   clearHint();
   hideBotRobot();
   game.active = false;
@@ -2268,7 +2388,7 @@ function wire() {
   $('#btn-mode-puzzles').addEventListener('click', openPuzzles);
   $('#btn-start').addEventListener('click', startFromSetup);
   $('#btn-restart').addEventListener('click', restartRound);
-  $('#btn-newround').addEventListener('click', restartRound);
+  $('#btn-newround').addEventListener('click', nextRound);
   $('#btn-playagain').addEventListener('click', onResultPrimary);
   $('#btn-undo').addEventListener('click', undo);
   hintBtn.addEventListener('click', showHint);
