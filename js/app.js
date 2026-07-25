@@ -16,8 +16,10 @@ import {
   checkWin,
   findWinFor,
   hasAnyMove,
+  legalMoves,
   other,
 } from './engine.js';
+import { solveBoard } from './solver.js';
 import { chooseMove, choosePopoutMove, winChance } from './bot.js';
 import { emptyHistory, recordGame, summarize, winRate, DIFFICULTIES, DIFFICULTY_LABEL } from './stats.js';
 import { summarizeReview } from './review.js';
@@ -451,6 +453,7 @@ const puzzleTitleEl = $('#puzzle-title');
 const puzzleDotEl = $('#puzzle-prompt .puzzle-dot');
 const puzzlePromptText = $('#puzzle-prompt-text');
 const puzzleStatusEl = $('#puzzle-status');
+const puzzleMovesEl = $('#puzzle-moves');
 const pzHintBtn = $('#pz-hint');
 const pzRetryBtn = $('#pz-retry');
 const pzNextBtn = $('#pz-next');
@@ -2229,7 +2232,42 @@ function renderPuzzleStats() {
 // and state so the core game flow is untouched.
 
 const PUZZLE_COLORS = { [P1]: '#ff3b30', [P2]: '#ffd23f' }; // fixed red vs yellow
-const puzzle = { i: 0, board: null, line: [], step: 0, solved: false, busy: false, gen: 0 };
+// Puzzles are played, not recited: you may drop anywhere, and the opponent
+// answers with its strongest (most-delaying) defence, computed live by the exact
+// solver rather than replayed from the stored line. You have exactly `winIn`
+// moves — the position's true mate distance — so any move that loses a tempo
+// costs you the puzzle. `used` counts YOUR moves.
+const puzzle = { i: 0, board: null, winIn: 0, used: 0, solved: false, failed: false, busy: false, gen: 0 };
+
+// Generous: benchmarked over every legal reply in all 56 puzzles, the worst
+// single defence decision was 31ms at a 200k budget with zero aborts, so there is
+// room to spare and no reason to risk an abort mid-puzzle.
+const PUZZLE_SOLVE_BUDGET = 5_000_000;
+
+// The opponent's strongest reply: take an outright win if there is one, otherwise
+// the move that minimises your score — i.e. drags the loss out as long as
+// possible. Centre-most breaks ties so it plays the same way every time.
+function puzzleBestDefence(board) {
+  const moves = legalMoves(board);
+  if (moves.length === 0) return null;
+  let best = null;
+  let bestScore = Infinity;
+  let bestCentre = Infinity;
+  for (const c of moves) {
+    const child = cloneBoard(board);
+    const landing = dropDisc(child, c, P2);
+    if (checkWin(child, landing.row, landing.col)) return c; // wins outright
+    const solved = solveBoard(child, P1, { budget: PUZZLE_SOLVE_BUDGET });
+    const score = solved ? solved.score : 0; // abort ⇒ treat as unknown, prefer centre
+    const centre = Math.abs(3 - c);
+    if (score < bestScore || (score === bestScore && centre < bestCentre)) {
+      bestScore = score;
+      bestCentre = centre;
+      best = c;
+    }
+  }
+  return best;
+}
 
 function decodePuzzleGrid(grid) {
   const board = createBoard();
@@ -2308,9 +2346,10 @@ function enterPuzzle(i) {
   const p = PUZZLES[i];
   puzzle.i = i;
   puzzle.board = decodePuzzleGrid(p.grid);
-  puzzle.line = p.line;
-  puzzle.step = 0;
+  puzzle.winIn = p.winIn;
+  puzzle.used = 0;
   puzzle.solved = false;
+  puzzle.failed = false;
   puzzle.busy = false;
   puzzle.gen++;
   buildBoardInto(puzzleBoardEl);
@@ -2322,10 +2361,32 @@ function enterPuzzle(i) {
   puzzleTitleEl.textContent = `Puzzle ${puzzleNo(i)} · ${p.tier}`;
   if (puzzleDotEl) puzzleDotEl.style.background = PUZZLE_COLORS[P1];
   puzzlePromptText.textContent = `Red to move — win in ${p.winIn}`;
-  setPuzzleStatus('Find the winning move.');
+  updatePuzzleMoves();
+  setPuzzleStatus('Play any move — the opponent defends as well as it can.');
   pzNextBtn.hidden = true;
   pzHintBtn.disabled = false;
   showScreen('screen-puzzle', 'fwd');
+}
+
+// Moves left out of the puzzle's budget. Run out without a four and it's a loss,
+// so this is the thing to watch.
+function updatePuzzleMoves() {
+  if (!puzzleMovesEl) return;
+  const left = Math.max(0, puzzle.winIn - puzzle.used);
+  puzzleMovesEl.textContent = `${left} move${left === 1 ? '' : 's'} left`;
+  puzzleMovesEl.classList.toggle('is-low', !puzzle.solved && !puzzle.failed && left <= 1);
+}
+
+function puzzleFail(reason) {
+  puzzle.failed = true;
+  puzzle.busy = false;
+  clearPuzzleAim();
+  clearPuzzleHint();
+  updatePuzzleMoves();
+  sound.invalid();
+  haptic([18, 60, 18]);
+  setPuzzleStatus(`${reason} Tap Retry to try again.`, 'bad');
+  pzHintBtn.disabled = true;
 }
 
 const retryPuzzle = () => enterPuzzle(puzzle.i);
@@ -2367,58 +2428,100 @@ function onPuzzleSolved(winCells) {
   pzHintBtn.disabled = true;
 }
 
-function puzzleWrong(col) {
-  sound.invalid();
-  haptic(30);
-  for (let r = 0; r < ROWS; r++) cellIn(puzzleBoardEl, r, col).classList.add('wrong');
-  setTimeout(() => { for (let r = 0; r < ROWS; r++) cellIn(puzzleBoardEl, r, col).classList.remove('wrong'); }, 550);
-  setPuzzleStatus('Not the winning move — try again.', 'bad');
-}
-
 function puzzleDrop(col) {
-  if (col == null || puzzle.solved || puzzle.busy) return;
+  if (col == null || puzzle.solved || puzzle.failed || puzzle.busy) return;
   clearPuzzleHint();
   const landing = lowestEmptyRow(puzzle.board, col);
-  if (landing < 0) { sound.invalid(); return; } // full column
-  if (col !== puzzle.line[puzzle.step]) { puzzleWrong(col); return; }
+  if (landing < 0) { sound.invalid(); return; } // full column — not a move at all
 
   puzzle.busy = true;
+  puzzle.used++;
   clearPuzzleAim();
   const gen = puzzle.gen;
   puzzlePlace(col, P1, (r) => {
     if (puzzle.gen !== gen) return; // navigated away mid-animation
+    updatePuzzleMoves();
+
     const cells = checkWin(puzzle.board, r, col);
-    if (cells) { onPuzzleSolved(cells); return; }
-    puzzle.step++;
-    setPuzzleStatus('Good — keep going.', 'good');
-    const oppCol = puzzle.line[puzzle.step];
+    if (cells) { onPuzzleSolved(cells); return; } // within budget by construction
+
+    // No four, and that was the last move you had.
+    if (puzzle.used >= puzzle.winIn) {
+      puzzleFail(`Out of moves — this one is a win in ${puzzle.winIn}.`);
+      return;
+    }
+    if (legalMoves(puzzle.board).length === 0) { puzzleFail('The board filled up.'); return; }
+
+    setPuzzleStatus('Opponent is defending…');
     setTimeout(() => {
       if (puzzle.gen !== gen) return;
-      puzzlePlace(oppCol, P2, () => {
+      const reply = puzzleBestDefence(puzzle.board);
+      if (reply == null) { puzzleFail('The board filled up.'); return; }
+      puzzlePlace(reply, P2, () => {
         if (puzzle.gen !== gen) return;
-        puzzle.step++;
+        // A defensive drop can complete four for the opponent if you left one open.
+        const theirs = findWinFor(puzzle.board, P2);
+        if (theirs) {
+          theirs.forEach(([wr, wc]) => {
+            const d = cellIn(puzzleBoardEl, wr, wc).querySelector('.disc');
+            if (d) d.classList.add('win');
+          });
+          puzzleFail('The opponent got four first.');
+          return;
+        }
         puzzle.busy = false;
-        setPuzzleStatus('Your move.');
+        if (legalMoves(puzzle.board).length === 0) { puzzleFail('The board filled up.'); return; }
+        setPuzzleStatus(`Your move — ${puzzle.winIn - puzzle.used} to go.`);
       });
-    }, 460);
+    }, 380);
   });
 }
 
+// The hint is solved from the position in front of you, not read off the stored
+// line — you're free to wander off it, so the line may no longer apply. It also
+// tells you when the win is already gone, which is more useful than pointing at
+// the least-bad move in a position you can't win.
 function puzzleHint() {
-  if (puzzle.solved || puzzle.busy) return;
+  if (puzzle.solved || puzzle.failed || puzzle.busy) return;
   clearPuzzleHint();
-  const col = puzzle.line[puzzle.step];
-  const row = lowestEmptyRow(puzzle.board, col);
+
+  const left = puzzle.winIn - puzzle.used;
+  let bestCol = null;
+  let bestMate = Infinity; // your moves needed to force the four
+  for (const c of legalMoves(puzzle.board)) {
+    const child = cloneBoard(puzzle.board);
+    const landing = dropDisc(child, c, P1);
+    if (checkWin(child, landing.row, landing.col)) { bestCol = c; bestMate = 1; break; }
+    const solved = solveBoard(child, P2, { budget: PUZZLE_SOLVE_BUDGET });
+    if (!solved || solved.score >= 0) continue; // P2 not lost ⇒ this move doesn't win
+    const mate = 1 + movesStillNeeded(child, solved.score);
+    if (mate < bestMate) { bestMate = mate; bestCol = c; }
+  }
+
+  if (bestCol == null || bestMate > left) {
+    setPuzzleStatus('The win has slipped away — tap Retry.', 'bad');
+    return;
+  }
+  const row = lowestEmptyRow(puzzle.board, bestCol);
   if (row < 0) return;
-  for (let r = 0; r < ROWS; r++) cellIn(puzzleBoardEl, r, col).classList.add('hint');
-  const ghost = spawnDisc(puzzleBoardEl, row, col, PUZZLE_COLORS[P1]);
+  for (let r = 0; r < ROWS; r++) cellIn(puzzleBoardEl, r, bestCol).classList.add('hint');
+  const ghost = spawnDisc(puzzleBoardEl, row, bestCol, PUZZLE_COLORS[P1]);
   ghost.classList.add('ghost');
-  setPuzzleStatus('Hint: this column.', 'hint');
+  setPuzzleStatus(`Hint: this column — then it's a win in ${bestMate}.`, 'hint');
+}
+
+// How many more of YOUR moves are needed, given a position where you have just
+// moved (so the opponent is to play) and the solver scored it from the opponent's
+// side. Checked against all 204 mid-line positions in the shipped set — exact
+// every time. Sibling of the root-side formula in tools/test_puzzles.mjs.
+function movesStillNeeded(afterYourMove, opponentScore) {
+  const discs = afterYourMove.flat().filter((v) => v !== EMPTY).length;
+  return Math.max(0, Math.round(21 - (discs - 1) / 2 - Math.abs(opponentScore)));
 }
 
 // Puzzle board input: press/hover to aim, release to drop (mirrors the game board).
 const pzAim = { pointerId: null };
-const puzzleCanPlay = () => currentScreen === 'screen-puzzle' && !puzzle.solved && !puzzle.busy;
+const puzzleCanPlay = () => currentScreen === 'screen-puzzle' && !puzzle.solved && !puzzle.failed && !puzzle.busy;
 
 function puzzleColFromPoint(x, y) {
   const el = document.elementFromPoint(x, y);

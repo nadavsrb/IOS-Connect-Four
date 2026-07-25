@@ -22,10 +22,13 @@ icon, works **offline**, and feels like a native app.
   ten named tiers (Warm-up · Sharp · Tactician · Sniper · Grandmaster · Legend · Mastermind · Oracle ·
   Nightmare · **Impossible**) from *win in 1* to *win in 10*. Each list cell shows its tier and how
   deep the forced win is, and **Next unsolved** jumps you to where you left off.
-  You're red; find the move that forces a win against the
-  opponent's best defence. Each has a single correct key move at every step. **Every puzzle is unlocked
-  from the start** — play them in any order — and the list marks the ones you've solved, with progress
-  saved on-device. Every puzzle was **generated and proven correct by the bitboard solver** offline
+  You're red, and you play it out properly: **drop wherever you like** and the opponent answers with
+  its **strongest defence, solved live** — not a scripted reply. You get exactly as many moves as the
+  position's true mate distance, so a move that merely *keeps* the win instead of taking the fastest
+  one costs you the puzzle. Run the budget out, or let the opponent get four first, and it's a loss —
+  Retry and go again. The 💡 hint is solved from the position in front of you and tells you how deep
+  the win is from there. **Every puzzle is unlocked from the start** — play them in any order — and the
+  list marks the ones you've solved, with progress saved on-device. Every puzzle was **generated and proven correct by the bitboard solver** offline
   (see `tools/gen_puzzles.mjs` / `tools/test_puzzles.mjs`): the solutions are exact, the advertised
   *win in N* matches the solver's mate distance, and the opponent always plays a true best defence.
 - 📊 **Win-% eval bar + best move** — an optional bar (toggle **📊 Win odds** in-game) shows each

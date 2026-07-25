@@ -543,24 +543,51 @@ try {
   const pz1 = PUZZLES[0];
   const preset = [...pz1.grid].filter((ch) => ch !== '0').length;
   const solCol = pz1.line[0];
-  const wrongCol = [0, 1, 2, 3, 4, 5, 6].find((c) => c !== solCol && pz1.grid[c] === '0'); // a non-full, non-solution column
+  const wrongCol = [0, 1, 2, 3, 4, 5, 6].find((c) => c !== solCol && pz1.grid[c] === '0'); // non-full, non-winning
   const pzDiscs = () => page.locator('#puzzle-board .disc').count();
-  const pzDrop = async (col) => { await page.locator(`#puzzle-board .cell[data-col="${col}"]`).first().click(); await wait(500); };
+  const pzStatus = async () => (await page.locator('#puzzle-status').textContent()) || '';
+  // Free play: after your move the opponent thinks, so wait for its reply (or for
+  // the puzzle to end) rather than a fixed delay.
+  const pzDrop = async (col) => {
+    await page.locator(`#puzzle-board .cell[data-col="${col}"]`).first().click();
+    await wait(600);
+    for (let i = 0; i < 60; i++) {
+      if (!/defending/i.test(await pzStatus())) break;
+      await wait(200);
+    }
+    await wait(150);
+  };
 
   await page.locator('#puzzle-grid .puzzle-cell').first().click();
   await wait(250);
   ok('puzzle play screen opens', await page.locator('#screen-puzzle').evaluate((el) => el.classList.contains('is-active')));
   ok('preset position is painted', (await pzDiscs()) === preset);
 
-  // Wrong move: no disc placed, "try again" shown.
-  await pzDrop(wrongCol);
-  ok('a wrong move places no disc', (await pzDiscs()) === preset);
-  ok('a wrong move is rejected with feedback', /try again/i.test((await page.locator('#puzzle-status').textContent()) || ''));
+  ok('the move budget is shown', /1 move left/.test((await page.locator('#puzzle-moves').textContent()) || ''));
 
-  // Hint highlights the solution column.
+  // Any legal move is allowed now — a non-winning one is PLAYED, and since this
+  // puzzle is a win-in-1 that spends the whole budget and loses the puzzle.
+  await pzDrop(wrongCol);
+  ok('a non-winning move is actually played', (await pzDiscs()) > preset);
+  ok('spending the budget without a four fails the puzzle', /out of moves/i.test(await pzStatus()));
+  ok('a failed puzzle locks the board', await page.locator('#puzzle-board').evaluate(
+    (el) => { const n = el.querySelectorAll('.disc').length;
+      el.querySelector('.cell[data-col="3"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      return el.querySelectorAll('.disc').length === n; }));
+  ok('a failed puzzle is not recorded as solved',
+    !(JSON.parse((await page.evaluate(() => localStorage.getItem('c4.puzzles.v1'))) || '{}').solved || []).includes(pz1.id));
+
+  // Retry restores the position and the full budget.
+  await page.locator('#pz-retry').click();
+  await wait(400);
+  ok('retry restores the starting position', (await pzDiscs()) === preset);
+  ok('retry restores the move budget', /1 move left/.test((await page.locator('#puzzle-moves').textContent()) || ''));
+
+  // The hint is solved live from the position, and names the mate distance.
   await page.locator('#pz-hint').click();
-  await wait(150);
-  ok('hint highlights the solving column', await page.locator(`#puzzle-board .cell[data-col="${solCol}"].hint`).count() > 0);
+  await wait(600);
+  ok('hint highlights a winning column', await page.locator(`#puzzle-board .cell[data-col="${solCol}"].hint`).count() > 0);
+  ok('hint states how deep the win is', /win in 1/i.test(await pzStatus()));
 
   // Solve it (puzzle 1 is win-in-1).
   await pzDrop(solCol);

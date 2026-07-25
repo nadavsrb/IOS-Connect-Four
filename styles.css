@@ -1490,6 +1490,24 @@ body::before {
 .puzzle-prompt { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 2px 0 0; }
 .puzzle-dot { width: 15px; height: 15px; border-radius: 50%; background: #ff3b30; box-shadow: 0 0 10px currentColor; }
 .puzzle-prompt-text { font-size: 1rem; font-weight: 700; }
+/* Your move budget. Run it out without a four and the puzzle is lost, so it needs
+   to be visible at a glance and to shout when you're down to your last move. */
+.puzzle-moves {
+  flex: none;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.puzzle-moves.is-low {
+  color: #ffb020;
+  border-color: rgba(255, 176, 32, 0.6);
+  background: rgba(255, 176, 32, 0.12);
+}
 .puzzle-status {
   text-align: center;
   min-height: 1.4em;
