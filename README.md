@@ -25,8 +25,10 @@ icon, works **offline**, and feels like a native app.
   You're red, and you play it out properly: **drop wherever you like** and the opponent answers with
   its **strongest defence, solved live** — not a scripted reply. You get exactly as many moves as the
   position's true mate distance, so a move that merely *keeps* the win instead of taking the fastest
-  one costs you the puzzle. Run the budget out, or let the opponent get four first, and it's a loss —
-  Retry and go again. The 💡 hint is solved from the position in front of you and tells you how deep
+  one costs you the puzzle. Run the budget out, or let the opponent get four first, and the board
+  **drains to grey, the discs sag and ash drifts down** over a quiet falling three-note figure before
+  the card tells you how it slipped away — Retry and go again.
+  The 💡 hint is solved from the position in front of you and tells you how deep
   the win is from there. **Every puzzle is unlocked from the start** — play them in any order — and the
   list marks the ones you've solved, with progress saved on-device. Every puzzle was **generated and proven correct by the bitboard solver** offline
   (see `tools/gen_puzzles.mjs` / `tools/test_puzzles.mjs`): the solutions are exact, the advertised

@@ -232,6 +232,14 @@ const sound = (() => {
         tone(880, 0.14, 'sine', 0.03, 0.2, 1320); // friendly little chirp instead
       }
     },
+    // Losing a puzzle: a slow descending minor figure that sags at the end, then a
+    // soft low thud. The deliberate opposite of win()'s rising arpeggio.
+    lose() {
+      tone(392, 0.34, 'triangle', 0.09, 0, 370); // G4, sagging
+      tone(311, 0.4, 'triangle', 0.085, 0.26, 294); // E♭4
+      tone(233, 0.7, 'sine', 0.075, 0.58, 196); // B♭3 → G3, the sigh
+      noise(0.22, 0.025, 190, 0.6); // dull thud underneath
+    },
     // The toss landing on whoever goes first: a short rising two-note flourish.
     reveal() {
       tone(660, 0.12, 'triangle', 0.07, 0, 880);
@@ -454,6 +462,10 @@ const puzzleDotEl = $('#puzzle-prompt .puzzle-dot');
 const puzzlePromptText = $('#puzzle-prompt-text');
 const puzzleStatusEl = $('#puzzle-status');
 const puzzleMovesEl = $('#puzzle-moves');
+const puzzleAshLayer = $('#puzzle-ash');
+const puzzleLostEl = $('#puzzle-lost');
+const plTitle = $('#pl-title');
+const plSub = $('#pl-sub');
 const pzHintBtn = $('#pz-hint');
 const pzRetryBtn = $('#pz-retry');
 const pzNextBtn = $('#pz-next');
@@ -1574,6 +1586,55 @@ function spawnConfetti(COUNT, layer = confettiLayer, colors) {
 
 // ---------------------------------------------------------------- full-column shake
 
+// Ash for a lost puzzle: the anti-confetti. Confetti is fast, bright and flung
+// upward; this drifts straight down, slowly, in cold grey, and lingers.
+function spawnAsh(count, layer) {
+  if (!layer || prefersReducedMotion()) return;
+  const rect = layer.getBoundingClientRect();
+  const width = rect.width || 340;
+  const height = rect.height || 340;
+  const flecks = [];
+
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement('i');
+    el.className = 'ash-fleck';
+    const size = 2 + Math.random() * 3;
+    el.style.width = `${size}px`;
+    el.style.height = `${size}px`;
+    el.style.left = `${Math.random() * width}px`;
+    layer.appendChild(el);
+    flecks.push({
+      el,
+      y: -10 - Math.random() * height * 0.5,
+      vy: 0.35 + Math.random() * 0.5, // slow — this is falling ash, not confetti
+      sway: 6 + Math.random() * 12,
+      phase: Math.random() * Math.PI * 2,
+      drift: 0.6 + Math.random() * 1.4,
+      peak: 0.4 + Math.random() * 0.45,
+      delay: Math.random() * 700,
+    });
+  }
+
+  const start = performance.now();
+  const LIFE = 2600;
+  function frame(now) {
+    const t = now - start;
+    for (const f of flecks) {
+      const age = t - f.delay;
+      if (age < 0) continue;
+      f.y += f.vy;
+      const x = Math.sin(f.phase + age / 420) * f.sway * f.drift;
+      const fadeIn = Math.min(1, age / 300);
+      const fadeOut = age > LIFE - 700 ? Math.max(0, 1 - (age - (LIFE - 700)) / 700) : 1;
+      f.el.style.transform = `translate(${x}px, ${f.y}px)`;
+      f.el.style.opacity = String(f.peak * fadeIn * fadeOut);
+    }
+    if (t < LIFE) requestAnimationFrame(frame);
+    else flecks.forEach((f) => f.el.remove());
+  }
+  requestAnimationFrame(frame);
+}
+
 function shakeColumn(col) {
   for (let r = 0; r < ROWS; r++) {
     const cell = cellAt(r, col);
@@ -2352,6 +2413,7 @@ function enterPuzzle(i) {
   puzzle.failed = false;
   puzzle.busy = false;
   puzzle.gen++;
+  clearPuzzleLoss();
   buildBoardInto(puzzleBoardEl);
   puzzleBoardEl.classList.add('col-hint');
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
@@ -2377,16 +2439,45 @@ function updatePuzzleMoves() {
   puzzleMovesEl.classList.toggle('is-low', !puzzle.solved && !puzzle.failed && left <= 1);
 }
 
-function puzzleFail(reason) {
+// Losing sequence, built as the mirror of the win: the win bursts colour outward,
+// this drains it away. The board desaturates and the discs sag, ash drifts down,
+// and a cracked disc fades up with the reason. `title` is the short headline.
+function puzzleFail(reason, title = 'Out of moves') {
   puzzle.failed = true;
   puzzle.busy = false;
   clearPuzzleAim();
   clearPuzzleHint();
   updatePuzzleMoves();
-  sound.invalid();
-  haptic([18, 60, 18]);
-  setPuzzleStatus(`${reason} Tap Retry to try again.`, 'bad');
   pzHintBtn.disabled = true;
+  setPuzzleStatus(title, 'bad');
+
+  const gen = puzzle.gen;
+  puzzleBoardEl.classList.add('is-lost'); // colour drains out of the position
+  sound.lose();
+  haptic([26, 90, 22, 90, 30]); // slow and heavy, not the sharp buzz of a rejection
+
+  setTimeout(() => {
+    if (puzzle.gen !== gen) return;
+    spawnAsh(34, puzzleAshLayer);
+  }, 180);
+
+  setTimeout(() => {
+    if (puzzle.gen !== gen || !puzzleLostEl) return;
+    if (plTitle) plTitle.textContent = title;
+    if (plSub) plSub.textContent = reason;
+    puzzleLostEl.classList.add('is-open');
+    puzzleLostEl.setAttribute('aria-hidden', 'false');
+  }, 520);
+}
+
+// Clear everything the losing sequence put on screen (used when re-entering).
+function clearPuzzleLoss() {
+  puzzleBoardEl.classList.remove('is-lost');
+  if (puzzleAshLayer) puzzleAshLayer.innerHTML = '';
+  if (puzzleLostEl) {
+    puzzleLostEl.classList.remove('is-open');
+    puzzleLostEl.setAttribute('aria-hidden', 'true');
+  }
 }
 
 const retryPuzzle = () => enterPuzzle(puzzle.i);
@@ -2447,16 +2538,16 @@ function puzzleDrop(col) {
 
     // No four, and that was the last move you had.
     if (puzzle.used >= puzzle.winIn) {
-      puzzleFail(`Out of moves — this one is a win in ${puzzle.winIn}.`);
+      puzzleFail(`You had ${puzzle.winIn} move${puzzle.winIn === 1 ? '' : 's'} to force it, and they're gone.`, 'Out of moves');
       return;
     }
-    if (legalMoves(puzzle.board).length === 0) { puzzleFail('The board filled up.'); return; }
+    if (legalMoves(puzzle.board).length === 0) { puzzleFail('The board filled up with no four in sight.', 'Board full'); return; }
 
     setPuzzleStatus('Opponent is defending…');
     setTimeout(() => {
       if (puzzle.gen !== gen) return;
       const reply = puzzleBestDefence(puzzle.board);
-      if (reply == null) { puzzleFail('The board filled up.'); return; }
+      if (reply == null) { puzzleFail('The board filled up with no four in sight.', 'Board full'); return; }
       puzzlePlace(reply, P2, () => {
         if (puzzle.gen !== gen) return;
         // A defensive drop can complete four for the opponent if you left one open.
@@ -2466,11 +2557,11 @@ function puzzleDrop(col) {
             const d = cellIn(puzzleBoardEl, wr, wc).querySelector('.disc');
             if (d) d.classList.add('win');
           });
-          puzzleFail('The opponent got four first.');
+          puzzleFail('You left a line open and the defence took it.', 'Beaten to it');
           return;
         }
         puzzle.busy = false;
-        if (legalMoves(puzzle.board).length === 0) { puzzleFail('The board filled up.'); return; }
+        if (legalMoves(puzzle.board).length === 0) { puzzleFail('The board filled up with no four in sight.', 'Board full'); return; }
         setPuzzleStatus(`Your move — ${puzzle.winIn - puzzle.used} to go.`);
       });
     }, 380);
@@ -2713,6 +2804,7 @@ function wire() {
   }
   pzHintBtn.addEventListener('click', puzzleHint);
   pzRetryBtn.addEventListener('click', retryPuzzle);
+  $('#pl-retry')?.addEventListener('click', retryPuzzle); // the one on the loss card
   pzNextBtn.addEventListener('click', nextPuzzle);
   wirePuzzleBoard();
 

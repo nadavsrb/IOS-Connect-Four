@@ -1527,6 +1527,99 @@ body::before {
 /* Wrong-move feedback: a red flash down the tapped column. */
 .cell.wrong .socket { box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.8), 0 0 0 2px #ff5a5a; }
 
+/* ---------------- Losing a puzzle ---------------- */
+/* Deliberately the inverse of the win: instead of colour bursting outward, the
+   colour drains out of the board, the discs sag, grey ash drifts down and a
+   cracked disc fades up. Slow and quiet rather than loud. */
+#puzzle-board.is-lost {
+  filter: grayscale(0.85) brightness(0.74) contrast(0.95);
+  transition: filter 0.8s ease;
+}
+#puzzle-board.is-lost .disc {
+  transform: translateY(3px);
+  transition: transform 0.9s cubic-bezier(0.4, 0, 0.6, 1);
+  box-shadow: none;
+}
+/* The four that beat you keeps its colour — it's what you want to look at. */
+#puzzle-board.is-lost .disc.win { filter: saturate(2.2) brightness(1.5); transform: none; }
+
+#puzzle-ash { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 5; }
+.ash-fleck {
+  position: absolute;
+  top: 0;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #9aa4c4;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.puzzle-lost {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 18px;
+  text-align: center;
+  background: radial-gradient(72% 62% at 50% 50%, rgba(8, 10, 22, 0.55), rgba(4, 5, 14, 0.78));
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.55s ease;
+}
+.puzzle-lost.is-open { opacity: 1; pointer-events: auto; }
+.puzzle-lost.is-open > * { animation: pl-sink 0.7s cubic-bezier(0.22, 0.9, 0.35, 1) both; }
+.puzzle-lost.is-open .pl-title { animation-delay: 0.06s; }
+.puzzle-lost.is-open .pl-sub { animation-delay: 0.12s; }
+.puzzle-lost.is-open .btn { animation-delay: 0.2s; }
+@keyframes pl-sink {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* A dulled red disc with a crack down it. */
+.pl-disc {
+  position: relative;
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 36%, #6e3138, #40202a 70%);
+  box-shadow: inset 0 -5px 10px rgba(0, 0, 0, 0.55), inset 0 0 0 3px rgba(0, 0, 0, 0.25);
+}
+.pl-disc::before,
+.pl-disc::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: 3px;
+  background: rgba(6, 7, 16, 0.92);
+}
+/* Two offset segments read as a jagged split rather than a clean slice. */
+.pl-disc::before { top: 2px; height: 30px; transform: translateX(-50%) rotate(9deg); }
+.pl-disc::after { bottom: 2px; height: 32px; transform: translateX(-50%) rotate(-11deg); }
+.puzzle-lost.is-open .pl-disc { animation: pl-crack 0.75s ease both; }
+@keyframes pl-crack {
+  0% { opacity: 0; transform: scale(1.18) rotate(-4deg); }
+  55% { opacity: 1; transform: scale(0.97) rotate(1deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0deg); }
+}
+
+.pl-title { margin: 2px 0 0; font-size: 1.24rem; font-weight: 800; color: #f0d0d4; letter-spacing: 0.01em; }
+.pl-sub { margin: 0; max-width: 17em; font-size: 0.84rem; color: var(--text-dim); }
+.puzzle-lost .btn { margin-top: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  #puzzle-board.is-lost, #puzzle-board.is-lost .disc { transition: none; }
+  #puzzle-board.is-lost .disc { transform: none; }
+  .puzzle-lost.is-open > *, .puzzle-lost.is-open .pl-disc { animation: none; }
+}
+
 /* ---------------- Bot robot (the computer's "hand") ---------------- */
 /* Hovers above the board on the bot's turn, slides to the chosen column and drops
    the disc. JS sets --tx/--ty (position) and a difficulty skin class. It escalates

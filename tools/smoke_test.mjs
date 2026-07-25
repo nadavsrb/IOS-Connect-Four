@@ -577,9 +577,24 @@ try {
   ok('a failed puzzle is not recorded as solved',
     !(JSON.parse((await page.evaluate(() => localStorage.getItem('c4.puzzles.v1'))) || '{}').solved || []).includes(pz1.id));
 
-  // Retry restores the position and the full budget.
-  await page.locator('#pz-retry').click();
-  await wait(400);
+  // --- The losing sequence: colour drains, ash falls, a cracked disc fades up ---
+  ok('the board drains of colour on a loss', (await page.locator('#puzzle-board.is-lost').count()) === 1);
+  ok('ash drifts down over the lost board', (await page.locator('#puzzle-ash .ash-fleck').count()) > 0);
+  await page.locator('#puzzle-lost.is-open').waitFor({ timeout: 4000 });
+  ok('the loss card fades up', (await page.locator('#puzzle-lost.is-open').count()) === 1);
+  ok('the loss card names what went wrong',
+    /out of moves/i.test((await page.locator('#pl-title').textContent()) || '') &&
+    ((await page.locator('#pl-sub').textContent()) || '').length > 10);
+  await page.screenshot({ path: `${SHOTS}/13b-puzzle-lost.png` });
+
+  // Retry from the card clears the whole losing state, not just the board.
+  await page.locator('#pl-retry').click();
+  await wait(600);
+  ok('retry clears the loss card and ash',
+    (await page.locator('#puzzle-lost.is-open').count()) === 0 &&
+    (await page.locator('#puzzle-board.is-lost').count()) === 0 &&
+    (await page.locator('#puzzle-ash .ash-fleck').count()) === 0);
+
   ok('retry restores the starting position', (await pzDiscs()) === preset);
   ok('retry restores the move budget', /1 move left/.test((await page.locator('#puzzle-moves').textContent()) || ''));
 

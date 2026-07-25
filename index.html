@@ -409,6 +409,15 @@
 
       <div class="board-wrap">
         <div id="puzzle-board" class="board" role="grid" aria-label="Puzzle board"></div>
+        <!-- Ash drifting down over a lost puzzle (the opposite of the win confetti) -->
+        <div id="puzzle-ash" aria-hidden="true"></div>
+        <!-- Loss card: fades up over the greyed-out board -->
+        <div id="puzzle-lost" class="puzzle-lost" aria-hidden="true">
+          <span class="pl-disc" aria-hidden="true"></span>
+          <p class="pl-title" id="pl-title">Out of moves</p>
+          <p class="pl-sub" id="pl-sub"></p>
+          <button id="pl-retry" class="btn btn-primary btn-sm">Try again</button>
+        </div>
       </div>
 
       <p class="puzzle-status" id="puzzle-status" aria-live="polite">&nbsp;</p>
