@@ -37,6 +37,11 @@ icon, works **offline**, and feels like a native app.
   **accuracy score** per player, and tappable chips for the moves that gave ground ("Move 12 ·
   Player 2 −48%") — tap one to jump to just before it and see what should have been played instead.
   Drag the curve to scrub. All computed on-device by the same solver, no ML, no network.
+- 👾 **Opponent reveal** — starting a game vs the bot boots the machine up first: a scanline sweep,
+  the robot materialising, its level slamming in and a line of trash talk. It **escalates with the
+  difficulty** — a mint-green helper chirping "Go easy on me, okay?" on Easy, an angry orange one on
+  Hard, and on **Insane** a red-eyed fanged nightmare behind a throbbing crimson vignette, screen
+  glitch and subsonic growl telling you it has already seen every move you have. Tap to skip.
 - 🎲 **Coin toss for the first move** — who opens is decided by a **random toss** with an animated
   roll: the highlight ping-pongs between the two players, slowing down until it lands on one of
   them. Within a match the starter then **alternates each round**, so the opening advantage evens

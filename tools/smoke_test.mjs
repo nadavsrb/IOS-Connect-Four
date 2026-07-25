@@ -46,12 +46,16 @@ async function goToMenu() {
     await wait(200);
   }
 }
-// The who-goes-first toss locks the board while it plays out; wait for it to
-// finish before trying to move. (It never swallows clicks — the board is guarded
-// by game.locked — but a click during it is simply ignored.)
-async function waitForToss() {
-  for (let i = 0; i < 80; i++) {
-    if (!(await page.locator('#toss.is-open').count())) return;
+// The opening sequence locks the board while it plays out: vs the bot that's the
+// opponent reveal AND then the toss, with a short gap between them, so "neither
+// overlay is open" has to hold across that gap before the board is really live.
+async function waitForOpening() {
+  const busy = async () => (await page.locator('#bot-intro.is-open, #toss.is-open').count()) > 0;
+  for (let i = 0; i < 140; i++) {
+    if (!(await busy())) {
+      await wait(340); // longer than the intro → toss hand-off
+      if (!(await busy())) return;
+    }
     await wait(80);
   }
 }
@@ -76,7 +80,7 @@ async function start2p(timer) {
   await wait(200);
   if (timer != null) await page.locator(`#timer-select .seg[data-timer="${timer}"]`).click();
   await page.locator('#btn-start').click();
-  await waitForToss();
+  await waitForOpening();
   await wait(300);
 }
 
@@ -114,7 +118,7 @@ try {
   await page.locator('#timer-select .seg[data-timer="0"]').click();
   await page.screenshot({ path: `${SHOTS}/02-setup.png` });
   await page.locator('#btn-start').click();
-  await waitForToss();
+  await waitForOpening();
   await wait(300);
   ok('game board has 42 cells', (await page.locator('#board .cell').count()) === 42);
 
@@ -150,6 +154,7 @@ try {
   ok('result overlay opened', await page.locator('#overlay-result').evaluate((el) => el.classList.contains('is-open')));
   ok('result announces a winner', /wins!/.test((await page.locator('#result-title').textContent()) || ''));
   await page.screenshot({ path: `${SHOTS}/04-win.png` });
+  await page.locator('#overlay-result.is-open').waitFor({ timeout: 10000 });
   ok("the first mover's win is recorded against the right seat",
     JSON.parse(await page.evaluate(() => localStorage.getItem('c4.stats.v1')))[String(firstMover)] === 1);
 
@@ -157,7 +162,7 @@ try {
   await page.locator('#btn-playagain').click();
   await wait(200);
   ok('Play Again rolls a fresh toss', (await page.locator('#toss.is-open').count()) === 1);
-  await waitForToss();
+  await waitForOpening();
   ok('the toss announced who goes first', /goes first/.test((await page.locator('#toss-result').textContent()) || ''));
   ok('play resumes with a valid starter', [1, 2].includes(await starterSeat()));
 
@@ -175,7 +180,22 @@ try {
   await wait(200);
   await page.locator('#difficulty .seg[data-diff="hard"]').click();
   await page.locator('#btn-start').click();
-  await waitForToss();
+
+  // --- Opponent reveal: the bot boots up before the toss, skinned by difficulty ---
+  await page.locator('#bot-intro.is-open').waitFor({ timeout: 5000 });
+  ok('vs bot opens with the opponent reveal', true);
+  ok('the reveal is skinned for the chosen level',
+    ((await page.locator('#bot-intro').getAttribute('class')) || '').includes('diff-hard'));
+  ok('the reveal names the level', /HARD/.test((await page.locator('#bi-level').textContent()) || ''));
+  ok('the reveal clones the robot in that skin',
+    ((await page.locator('#bi-stage .bot-robot').getAttribute('class')) || '').includes('diff-hard'));
+  // Tap to skip. No screenshot in here — the reveal only runs ~2s and a full-page
+  // capture at 3x eats enough of that for the intro to close on its own first,
+  // leaving nothing clickable. (The visuals are captured separately.)
+  await page.locator('#bot-intro').click({ timeout: 4000 });
+  await wait(500);
+  ok('tapping the reveal skips it', (await page.locator('#bot-intro.is-open').count()) === 0);
+  await waitForOpening();
   await wait(300);
   await waitForHumanTurn(); // the toss may have given the bot the opening move
   const before = await discCount();
@@ -196,7 +216,10 @@ try {
   // --- Best-of-3 match series (first mover wins each round with the same pattern) ---
   async function firstMoverWins() {
     for (const col of [0, 0, 1, 1, 2, 2, 3]) await dropAt(col, 520);
-    await wait(1200);
+    // Wait for the result overlay itself rather than guessing how long the win
+    // animation takes — a fixed delay raced the button label under load.
+    await page.locator('#overlay-result.is-open').waitFor({ timeout: 10000 });
+    await wait(250);
   }
   await goToMenu();
   await page.locator('#btn-mode-2p').click();
@@ -205,24 +228,24 @@ try {
   await page.locator('#variant-select .seg[data-variant="classic"]').click();
   await page.locator('#match-select .seg[data-match="2"]').click(); // best of 3 → first to 2
   await page.locator('#btn-start').click();
-  await waitForToss();
+  await waitForOpening();
   await wait(300);
   ok('series pips shown for a best-of match', !(await page.locator('#series-line').evaluate((el) => el.hidden)));
   const r1Starter = await starterSeat(); // rolled by the toss
   await firstMoverWins(); // round 1 → the starter
   ok('round win offers Next Round', ((await page.locator('#btn-playagain').textContent()) || '').includes('Next Round'));
   await page.locator('#btn-playagain').click();
-  await wait(300);
+  await wait(450);
   // Within a match the starter ALTERNATES rather than being re-rolled, so the
   // next round is announced (no spinning) and hands the first move to the other seat.
   ok('the next round announces its starter', /goes first/.test((await page.locator('#toss-result').textContent()) || ''));
-  await waitForToss();
+  await waitForOpening();
   const r2Starter = await starterSeat();
   ok('the starter alternates between rounds of a match', r2Starter === (r1Starter === 1 ? 2 : 1));
   await firstMoverWins(); // round 2 → the other seat
   await page.locator('#btn-playagain').click();
   await wait(300);
-  await waitForToss();
+  await waitForOpening();
   ok('round 3 alternates back', (await starterSeat()) === r1Starter);
   await firstMoverWins(); // round 3 → r1Starter reaches 2 → match
   ok('match completes with a match win', /wins the match/.test((await page.locator('#result-title').textContent()) || ''));
@@ -237,7 +260,7 @@ try {
   await page.locator('#variant-select .seg[data-variant="popout"]').click();
   await page.locator('#match-select .seg[data-match="1"]').click();
   await page.locator('#btn-start').click();
-  await waitForToss();
+  await waitForOpening();
   await wait(300);
   ok('pop toggle visible in Pop-Out', !(await page.locator('#btn-poptoggle').evaluate((el) => el.hidden)));
   // Stack col 0: P1 (bottom), then P2 on top. Back to P1's turn.
@@ -268,7 +291,7 @@ try {
   await page.locator('#variant-select .seg[data-variant="popout"]').click();
   await wait(80);
   await page.locator('#btn-start').click();
-  await waitForToss();
+  await waitForOpening();
   await wait(400);
   ok('Pop-Out vs bot offers the pop toggle', await page.locator('#btn-poptoggle').isVisible());
   await waitForHumanTurn();
@@ -291,14 +314,14 @@ try {
   await page.locator('#variant-select .seg[data-variant="classic"]').click();
   await page.locator('#match-select .seg[data-match="1"]').click();
   await page.locator('#btn-start').click();
-  await waitForToss();
+  await waitForOpening();
   await wait(300);
   const preResetStarter = await starterSeat(); // rolled, so not necessarily P1
   await page.locator('#board .cell[data-col="0"]').first().click(); // drops (still animating)
   await wait(110);
   await page.locator('#btn-newround').click(); // reset before the drop settles
   await wait(800); // the stale drop callback fires here and must be ignored
-  await waitForToss();
+  await waitForOpening();
   // New Round alternates the starter, and the stale drop callback must not have
   // advanced the turn on top of that.
   ok('reset mid-animation keeps the correct turn',
@@ -313,7 +336,7 @@ try {
   await page.locator('#variant-select .seg[data-variant="classic"]').click();
   await page.locator('#match-select .seg[data-match="1"]').click();
   await page.locator('#btn-start').click();
-  await waitForToss();
+  await waitForOpening();
   await wait(300);
   // The win-% bar is hidden by default — reveal it with the toggle.
   ok('eval bar hidden by default', !(await page.locator('#eval').evaluate((el) => el.classList.contains('is-on'))));
@@ -334,8 +357,19 @@ try {
   await page.screenshot({ path: `${SHOTS}/10-hint.png` });
   await dropAt(3);
   ok('hint clears after a move', (await page.locator('#board .disc.ghost').count()) === 0);
-  const [w1b] = await evalWidths();
-  ok('eval split changes after a move', w1b !== w1a);
+  // The bar tracks the position, but a single move can legitimately round to the
+  // same integer percentage — so sample a few moves and require it to move at
+  // least once, and to stay a valid split throughout.
+  const seen = [w1a, (await evalWidths())[0]];
+  let splitsValid = true;
+  for (const col of [4, 2, 5]) {
+    await dropAt(col);
+    const [a, b] = await evalWidths();
+    if (Math.abs(a + b - 100) > 1) splitsValid = false;
+    seen.push(a);
+  }
+  ok('eval bar stays a valid split as the game goes on', splitsValid);
+  ok('eval split changes as moves are played', new Set(seen).size > 1);
 
   // --- Insane bot ---
   await goToMenu();
@@ -344,7 +378,7 @@ try {
   ok('4 difficulty options incl. Insane', (await page.locator('#difficulty .seg').count()) === 4);
   await page.locator('#difficulty .seg[data-diff="insane"]').click();
   await page.locator('#btn-start').click();
-  await waitForToss();
+  await waitForOpening();
   await wait(300);
   {
     await waitForHumanTurn();
@@ -366,10 +400,11 @@ try {
   await page.locator('#variant-select .seg[data-variant="classic"]').click();
   await page.locator('#match-select .seg[data-match="1"]').click();
   await page.locator('#btn-start').click();
-  await waitForToss();
+  await waitForOpening();
   await wait(300);
-  for (const c of [0, 0, 1, 1, 2, 2, 3]) await dropAt(c, 520); // P1 wins across the bottom
-  await wait(1200);
+  for (const c of [0, 0, 1, 1, 2, 2, 3]) await dropAt(c, 520); // the first mover wins across the bottom
+  await page.locator('#overlay-result.is-open').waitFor({ timeout: 10000 });
+  await wait(250);
   await page.locator('#btn-watch-replay').click();
   await wait(300);
   ok('replay screen is active', await page.locator('#screen-replay').evaluate((el) => el.classList.contains('is-active')));

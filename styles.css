@@ -919,6 +919,165 @@ body::before {
 .replay-actions .btn { min-width: 160px; text-align: center; }
 .replay-actions .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* ---------------- Opponent reveal (vs Bot) ---------------- */
+/* Boots the bot up before the toss. Every layer here is keyed off a
+   .diff-* class so the whole thing escalates with the difficulty: accent colour,
+   vignette strength, scanline speed, screen shake and the robot's own skin. */
+.bot-intro {
+  --bi-accent: #5b8cff;
+  --bi-vignette: rgba(91, 140, 255, 0.16);
+  position: absolute;
+  inset: 0;
+  z-index: 7; /* above the toss, below the result overlay */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: radial-gradient(125% 100% at 50% 45%, rgba(9, 7, 18, 0.88), rgba(2, 2, 8, 0.97));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.24s ease;
+  overflow: hidden;
+}
+.bot-intro.is-open { opacity: 1; pointer-events: auto; } /* tappable to skip */
+
+/* Coloured vignette hugging the edges — the "presence" of the thing. */
+.bot-intro::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 110px 26px var(--bi-vignette);
+}
+
+/* A single scanline sweeping down the screen as it boots. */
+.bi-scan {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  opacity: 0;
+  background: linear-gradient(90deg, transparent, var(--bi-accent), transparent);
+  box-shadow: 0 0 18px 5px var(--bi-accent);
+}
+.bot-intro.is-open .bi-scan { animation: bi-sweep 1.15s ease-in-out; }
+@keyframes bi-sweep {
+  0% { top: 6%; opacity: 0; }
+  18% { opacity: 0.95; }
+  100% { top: 94%; opacity: 0; }
+}
+
+.bi-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.bi-kicker {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--bi-accent);
+  opacity: 0.85;
+}
+
+/* The robot is a clone of the in-game one, so it arrives at 62×64 — scale it up
+   rather than resizing its parts, which are all in px. */
+.bi-stage { display: flex; align-items: center; justify-content: center; width: 136px; height: 140px; }
+.bot-robot.bi-robot.is-active {
+  position: static;
+  opacity: 1;
+  transform: scale(1.9);
+  transform-origin: center;
+  transition: none;
+  filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.6));
+}
+.bot-intro.is-open .bot-robot.bi-robot { animation: bi-materialise 0.5s ease both; }
+@keyframes bi-materialise {
+  from { opacity: 0; filter: blur(9px) brightness(2.2); }
+  to { opacity: 1; filter: none; }
+}
+
+.bi-level {
+  margin: 0;
+  font-size: 2.05rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  color: var(--bi-accent);
+  text-shadow: 0 0 22px var(--bi-vignette);
+  opacity: 0;
+}
+.bot-intro.show-level .bi-level { animation: bi-slam 0.34s cubic-bezier(0.2, 1.5, 0.4, 1) both; }
+@keyframes bi-slam {
+  from { opacity: 0; transform: scale(1.7); filter: blur(7px); }
+  to { opacity: 1; transform: scale(1); filter: none; }
+}
+
+.bi-taunt { margin: 0; min-height: 1.25em; max-width: 19em; font-size: 0.86rem; color: var(--text-dim); opacity: 0; }
+.bot-intro.show-taunt .bi-taunt { animation: bi-fade 0.4s ease both; }
+@keyframes bi-fade { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+
+.bi-skip { margin: 4px 0 0; font-size: 0.6rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-dim); opacity: 0.45; }
+
+/* --- Escalation, level by level --- */
+.bot-intro.diff-easy { --bi-accent: #40dcc0; --bi-vignette: rgba(64, 220, 192, 0.16); }
+.bot-intro.diff-medium { --bi-accent: #5b8cff; --bi-vignette: rgba(91, 140, 255, 0.18); }
+
+.bot-intro.diff-hard { --bi-accent: #ff8a3c; --bi-vignette: rgba(255, 120, 40, 0.28); }
+/* Hard rattles the card when its level lands. */
+.bot-intro.diff-hard.show-level .bi-card { animation: bi-shake 0.3s steps(3) 2; }
+
+.bot-intro.diff-insane { --bi-accent: #ff2233; --bi-vignette: rgba(255, 20, 40, 0.44); }
+/* Insane: the vignette breathes, the scanline keeps sweeping, and the whole card
+   glitches hard on the reveal. */
+.bot-intro.diff-insane::after { animation: bi-throb 1.15s ease-in-out infinite; }
+.bot-intro.diff-insane.is-open .bi-scan { animation: bi-sweep 0.62s ease-in-out infinite; }
+.bot-intro.diff-insane .bi-level { text-shadow: 0 0 26px rgba(255, 20, 40, 0.95), 0 0 60px rgba(255, 20, 40, 0.5); }
+.bot-intro.diff-insane.show-level .bi-card { animation: bi-glitch 0.26s steps(2) 5; }
+.bot-intro.diff-insane .bi-kicker { animation: bi-flicker 2.2s steps(1) infinite; }
+
+@keyframes bi-shake {
+  0% { transform: translate(0, 0); }
+  33% { transform: translate(-4px, 1px); }
+  66% { transform: translate(4px, -1px); }
+  100% { transform: translate(0, 0); }
+}
+@keyframes bi-glitch {
+  0% { transform: translate(0, 0) skewX(0deg); }
+  25% { transform: translate(-7px, 2px) skewX(-2.5deg); }
+  50% { transform: translate(6px, -3px) skewX(2deg); }
+  75% { transform: translate(-3px, -1px) skewX(-1deg); }
+  100% { transform: translate(0, 0) skewX(0deg); }
+}
+@keyframes bi-throb {
+  0%, 100% { box-shadow: inset 0 0 110px 26px var(--bi-vignette); }
+  50% { box-shadow: inset 0 0 150px 46px var(--bi-vignette); }
+}
+@keyframes bi-flicker {
+  0%, 42%, 46%, 88%, 100% { opacity: 0.85; }
+  44%, 90% { opacity: 0.25; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bot-intro.is-open .bi-scan,
+  .bot-intro.diff-insane.is-open .bi-scan,
+  .bot-intro.diff-insane::after,
+  .bot-intro.diff-insane .bi-kicker,
+  .bot-intro.is-open .bot-robot.bi-robot,
+  .bot-intro.diff-hard.show-level .bi-card,
+  .bot-intro.diff-insane.show-level .bi-card { animation: none; }
+  .bot-intro.show-level .bi-level,
+  .bot-intro.show-taunt .bi-taunt { animation: bi-fade 0.2s ease both; }
+}
+
 /* ---------------- Who-goes-first toss ---------------- */
 /* Sits over the board while the starter is decided. The highlight ping-pongs
    between the two players and decelerates onto the winner. */

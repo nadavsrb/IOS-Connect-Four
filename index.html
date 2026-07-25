@@ -228,6 +228,20 @@
       <!-- Confetti burst layer (populated by JS on a win) -->
       <div id="confetti" aria-hidden="true"></div>
 
+      <!-- Opponent reveal (vs Bot only): boots the machine up before the toss and
+           gets more menacing with the difficulty. The robot itself is cloned from
+           #bot-robot at runtime so the skins live in one place. -->
+      <div id="bot-intro" class="bot-intro" aria-hidden="true">
+        <span class="bi-scan"></span>
+        <div class="bi-card">
+          <p class="bi-kicker" id="bi-kicker"></p>
+          <div class="bi-stage" id="bi-stage"></div>
+          <p class="bi-level" id="bi-level"></p>
+          <p class="bi-taunt" id="bi-taunt"></p>
+          <p class="bi-skip">Tap to skip</p>
+        </div>
+      </div>
+
       <!-- Who-goes-first toss: the highlight ping-pongs between the two players,
            slowing down until it lands on the one who starts. -->
       <div id="toss" class="toss" aria-hidden="true">

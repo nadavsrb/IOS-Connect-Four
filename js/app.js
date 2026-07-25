@@ -216,6 +216,20 @@ const sound = (() => {
     tick() {
       tone(760, 0.045, 'sine', 0.045);
     },
+    // The opponent booting up. A rising sweep for everyone, plus low dread that
+    // deepens with the difficulty (Insane gets a subsonic detuned pair + hiss).
+    botIntro(difficulty) {
+      tone(170, 0.44, 'sawtooth', 0.045, 0, 640);
+      if (difficulty === 'insane') {
+        tone(48, 0.95, 'sawtooth', 0.075, 0.08, 33);
+        tone(71, 0.9, 'square', 0.03, 0.1, 47); // detuned against it — a beating growl
+        noise(0.55, 0.028, 2600, 0.2);
+      } else if (difficulty === 'hard') {
+        tone(115, 0.55, 'sawtooth', 0.055, 0.08, 78);
+      } else if (difficulty === 'easy') {
+        tone(880, 0.14, 'sine', 0.03, 0.2, 1320); // friendly little chirp instead
+      }
+    },
     // The toss landing on whoever goes first: a short rising two-note flourish.
     reveal() {
       tone(660, 0.12, 'triangle', 0.07, 0, 880);
@@ -403,6 +417,12 @@ const rpHintBtn = $('#rp-hint');
 const replayEvalP1 = $('#replay-eval-p1');
 const replayEvalP2 = $('#replay-eval-p2');
 const replayEvalLabel = $('#replay-eval-label');
+
+const botIntroEl = $('#bot-intro');
+const biStage = $('#bi-stage');
+const biKicker = $('#bi-kicker');
+const biLevel = $('#bi-level');
+const biTaunt = $('#bi-taunt');
 
 const tossEl = $('#toss');
 const tossTitle = $('#toss-title');
@@ -702,7 +722,8 @@ function startGame(mode) {
   document.documentElement.style.setProperty('--p1', game.colors[1]);
   document.documentElement.style.setProperty('--p2', game.colors[2]);
 
-  resetRoundState('toss');
+  // Vs the bot, boot the opponent up first, then toss for the first move.
+  resetRoundState(mode === 'bot' ? 'bot' : 'toss');
   renderScores();
   showScreen('screen-game', 'fwd');
 }
@@ -758,6 +779,78 @@ function resetRoundState(intro = null) {
   maybeBotMove(); // handles the case where the bot is the starting player this round
 }
 
+// --- Opponent reveal (vs Bot) --------------------------------------------------
+// Boots the machine up before the toss: a scanline sweep, the robot materialising,
+// its level slamming in, then a line of trash talk. Everything about it escalates
+// with the difficulty — colour, vignette, screen shake, sound and the line itself —
+// so Insane arrives as a genuine threat and Easy as a friendly helper.
+
+const BOT_INTRO = {
+  easy: { level: 'EASY', kicker: 'Waking your opponent…', taunt: 'Go easy on me, okay?' },
+  medium: { level: 'MEDIUM', kicker: 'Booting opponent…', taunt: "Let's play a fair game." },
+  hard: { level: 'HARD', kicker: 'Opponent online.', taunt: 'I do not make the same mistake twice.' },
+  // The kicker is already letter-spaced in CSS, so don't pad it here — HTML would
+  // collapse the runs of spaces anyway.
+  insane: { level: 'INSANE', kicker: 'System awake', taunt: 'I have already seen every move you have.' },
+};
+
+let introGen = 0;
+
+function hideBotIntro() {
+  introGen++; // abandon a reveal still in flight
+  if (botIntroEl) {
+    botIntroEl.classList.remove('is-open');
+    botIntroEl.onclick = null;
+  }
+}
+
+function runBotIntro(done) {
+  if (!botIntroEl || !botRobot || !biStage) { done(); return; }
+  const gen = ++introGen;
+  const diff = game.difficulty;
+  const copy = BOT_INTRO[diff] || BOT_INTRO.medium;
+  const reduced = prefersReducedMotion();
+
+  // Clone the in-game robot so the four skins are defined in exactly one place.
+  const robot = botRobot.cloneNode(true);
+  robot.removeAttribute('id');
+  robot.className = `bot-robot bi-robot diff-${diff} is-active`;
+  biStage.replaceChildren(robot);
+
+  botIntroEl.className = `bot-intro diff-${diff}`;
+  biKicker.textContent = copy.kicker;
+  biLevel.textContent = copy.level;
+  biTaunt.textContent = '';
+  void botIntroEl.offsetWidth; // restart the sweep/enter animations
+  botIntroEl.classList.add('is-open');
+  sound.botIntro(diff);
+
+  const timers = [];
+  const at = (ms, fn) => timers.push(setTimeout(() => { if (gen === introGen) fn(); }, ms));
+
+  const finish = () => {
+    if (gen !== introGen) return;
+    timers.forEach(clearTimeout);
+    introGen++; // nothing queued can fire past this point
+    botIntroEl.classList.remove('is-open');
+    botIntroEl.onclick = null;
+    setTimeout(done, 240); // let the fade out finish before the toss opens
+  };
+
+  at(reduced ? 40 : 640, () => {
+    botIntroEl.classList.add('show-level');
+    sound.robot(diff); // the servo sting, already graded by difficulty
+    haptic(diff === 'insane' ? [16, 40, 22, 40, 28] : diff === 'hard' ? [14, 40, 18] : 12);
+  });
+  at(reduced ? 120 : 1080, () => {
+    biTaunt.textContent = copy.taunt;
+    botIntroEl.classList.add('show-taunt');
+  });
+  at(reduced ? 520 : 2050, finish);
+
+  botIntroEl.onclick = finish; // tap to skip
+}
+
 // --- Who goes first ------------------------------------------------------------
 // The starter is rolled for the first round of a match and then alternates. The
 // overlay makes that visible either way: 'toss' ping-pongs a highlight between
@@ -772,6 +865,8 @@ function hideToss() {
 }
 
 function runStartIntro(mode, done) {
+  // 'bot' chains the opponent reveal in front of the toss.
+  if (mode === 'bot') { runBotIntro(() => runStartIntro('toss', done)); return; }
   if (!tossEl) { done(); return; }
   const gen = ++tossGen; // a new roll supersedes any previous one mid-flight
   const winner = game.startingPlayer;
@@ -1254,6 +1349,7 @@ function goMenu() {
   stopReplayPlay();
   resetReview(); // cancel any in-flight analysis
   hideToss(); // and any toss still rolling
+  hideBotIntro();
   clearHint();
   hideBotRobot();
   game.active = false;
