@@ -14,7 +14,10 @@ function ok(name, cond) {
 }
 
 const solve = (b, p) => solveBoard(b, p, { budget: 60_000_000 });
-const TIER_WIN = { 'Warm-up': 1, 'Sharp': 2, 'Tactician': 3, 'Sniper': 4, 'Grandmaster': 5, 'Legend': 6, 'Mastermind': 7 };
+const TIER_WIN = {
+  'Warm-up': 1, 'Sharp': 2, 'Tactician': 3, 'Sniper': 4, 'Grandmaster': 5,
+  'Legend': 6, 'Mastermind': 7, 'Oracle': 8, 'Nightmare': 9, 'Impossible': 10,
+};
 
 // Grid → board; also returns per-cell counts. Grid is row-major top→bottom.
 function decode(grid) {
@@ -77,15 +80,17 @@ ok('at least 50 puzzles', PUZZLES.length >= 50);
 ok('has a harder win-in-6+ pack (20+)', PUZZLES.filter((p) => p.winIn >= 6).length >= 20);
 
 let prevWinIn = 0;
-let idsSequential = true;
+let idsUnique = true;
+const seenIds = new Set();
 let orderedByDifficulty = true;
 
 for (const pz of PUZZLES) {
   const tag = `#${pz.id} (${pz.tier}, win-in-${pz.winIn})`;
-  if (pz.id !== PUZZLES.indexOf(pz) + 1) idsSequential = false;
-  // Difficulty never drops as you go — except when entering the harder win-in-6+
-  // pack, which is appended after the base ladder and then ramps up again.
-  if (pz.winIn < prevWinIn && pz.winIn < 6) orderedByDifficulty = false;
+  if (seenIds.has(pz.id)) idsUnique = false;
+  seenIds.add(pz.id);
+  // Difficulty never drops as you go — no exceptions. (This used to carve out the
+  // appended win-in-6+ pack, which hid a real backwards step at the seam.)
+  if (pz.winIn < prevWinIn) orderedByDifficulty = false;
   prevWinIn = pz.winIn;
 
   // Grid shape + legality.
@@ -109,7 +114,7 @@ for (const pz of PUZZLES) {
   ok(`${tag}: start is non-terminal`, !anyFour(board) && legalMoves(board).length > 0);
 
   // Tier label matches winIn (5 = 5-or-more).
-  ok(`${tag}: tier matches winIn`, TIER_WIN[pz.tier] === Math.min(7, pz.winIn));
+  ok(`${tag}: tier matches winIn`, TIER_WIN[pz.tier] === Math.min(10, pz.winIn));
   ok(`${tag}: winIn matches line length`, pz.winIn === Math.ceil(pz.line.length / 2));
 
   // Walk the solution: each P1 move must be the UNIQUE winning move; opponent
@@ -153,8 +158,21 @@ for (const pz of PUZZLES) {
   ok(`${tag}: the line ends on your four-in-a-row`, wonAtStep === pz.line.length - 1 && repliesOK);
 }
 
-ok('ids are sequential 1..N', idsSequential);
-ok('puzzles are ordered easiest → hardest', orderedByDifficulty);
+// Ids are permanent handles for saved progress, so they need only be unique —
+// the displayed number is the ladder position.
+ok('ids are unique', idsUnique);
+ok('puzzles are ordered easiest → hardest, strictly', orderedByDifficulty);
+ok('every tier name maps to a winIn', PUZZLES.every((p) => TIER_WIN[p.tier] !== undefined));
+// The top of the ladder must actually discriminate: no single tier may span more
+// than one winIn value.
+{
+  const spans = new Map();
+  for (const p of PUZZLES) {
+    if (!spans.has(p.tier)) spans.set(p.tier, new Set());
+    spans.get(p.tier).add(Math.min(10, p.winIn));
+  }
+  ok('no tier lumps several depths together', [...spans.values()].every((s2) => s2.size === 1));
+}
 
 console.log('');
 console.log(`Results: ${passed} passed, ${failed} failed`);

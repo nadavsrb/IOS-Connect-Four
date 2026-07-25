@@ -498,6 +498,14 @@ try {
   ok('no puzzle is locked', (await page.locator('#puzzle-grid .puzzle-cell.is-locked').count()) === 0);
   ok('every puzzle cell is enabled', (await page.locator('#puzzle-grid .puzzle-cell:disabled').count()) === 0);
   ok('none are marked solved on a fresh install', (await page.locator('#puzzle-grid .puzzle-cell.is-solved').count()) === 0);
+  // Cells are numbered by ladder position and show how deep the win is.
+  ok('cells are numbered 1..N by position',
+    (await page.locator('#puzzle-grid .pz-num').first().textContent()) === '1' &&
+    (await page.locator('#puzzle-grid .pz-num').last().textContent()) === String(PUZZLES.length));
+  ok('each cell shows its win depth', (await page.locator('#puzzle-grid .pz-win').count()) === PUZZLES.length);
+  ok('the ladder ends in the hardest tier',
+    /Impossible/i.test((await page.locator('#puzzle-grid .pz-tier').last().textContent()) || ''));
+  ok('Next unsolved is offered on a fresh install', await page.locator('#btn-pz-next-unsolved').isVisible());
   // The hardest puzzle at the very end of the ladder opens straight away.
   await page.locator('#puzzle-grid .puzzle-cell').last().click();
   await wait(250);

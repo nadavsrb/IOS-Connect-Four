@@ -444,6 +444,7 @@ const reviewMoments = $('#review-moments');
 
 const puzzleGridEl = $('#puzzle-grid');
 const puzzlesCountEl = $('#puzzles-count');
+const pzNextUnsolvedBtn = $('#btn-pz-next-unsolved');
 const puzzlesProgressFill = $('#puzzles-progress-fill');
 const puzzleBoardEl = $('#puzzle-board');
 const puzzleTitleEl = $('#puzzle-title');
@@ -2187,10 +2188,16 @@ function decodePuzzleGrid(grid) {
   return board;
 }
 
-const tierBucket = (winIn) => Math.min(7, winIn);
+const tierBucket = (winIn) => Math.min(10, winIn);
 
-// Every puzzle is playable from the start — the list is a menu, not a gate. The
-// only state it carries is which ones you've already solved.
+// The number shown to the player is the puzzle's POSITION in the ladder, not its
+// id. Ids are permanent handles for saved progress; positions can shift when the
+// set is re-sorted or extended, and a ladder that counts 1..N is what the player
+// actually wants to see.
+const puzzleNo = (i) => i + 1;
+
+// Every puzzle is playable from the start — the list is a menu, not a gate. It
+// shows what you've solved and, per cell, how deep the win is.
 function renderPuzzleList() {
   const solved = new Set(puzzleProgress.solved);
   puzzleGridEl.innerHTML = '';
@@ -2201,17 +2208,27 @@ function renderPuzzleList() {
     if (isSolved) cell.classList.add('is-solved');
     cell.dataset.i = String(i);
     cell.setAttribute('role', 'listitem');
-    cell.setAttribute('aria-label', `Puzzle ${p.id}, ${p.tier}, win in ${p.winIn}${isSolved ? ', solved' : ''}`);
+    cell.setAttribute('aria-label',
+      `Puzzle ${puzzleNo(i)}, ${p.tier}, win in ${p.winIn}${isSolved ? ', solved' : ''}`);
     cell.innerHTML =
       `<span class="pz-mark" data-icon="${isSolved ? 'check' : ''}"></span>` +
-      `<span class="pz-num">${p.id}</span>` +
-      `<span class="pz-tier">${p.tier}</span>`;
+      `<span class="pz-num">${puzzleNo(i)}</span>` +
+      `<span class="pz-tier">${p.tier}</span>` +
+      `<span class="pz-win">win in ${p.winIn}</span>`;
     puzzleGridEl.appendChild(cell);
   });
   installIcons(puzzleGridEl);
   const solvedCount = PUZZLES.filter((p) => solved.has(p.id)).length;
   puzzlesCountEl.textContent = `${solvedCount} / ${PUZZLES.length} solved`;
   if (puzzlesProgressFill) puzzlesProgressFill.style.width = `${Math.round((solvedCount / PUZZLES.length) * 100)}%`;
+  // With 56 of them, "where was I?" needs an answer that isn't scrolling.
+  if (pzNextUnsolvedBtn) pzNextUnsolvedBtn.hidden = firstUnsolvedIndex() < 0;
+}
+
+// Index of the first puzzle you haven't solved, or -1 when the set is complete.
+function firstUnsolvedIndex() {
+  const solved = new Set(puzzleProgress.solved);
+  return PUZZLES.findIndex((p) => !solved.has(p.id));
 }
 
 function openPuzzles() {
@@ -2250,7 +2267,7 @@ function enterPuzzle(i) {
     const v = puzzle.board[r][c];
     if (v !== EMPTY) spawnDisc(puzzleBoardEl, r, c, PUZZLE_COLORS[v]);
   }
-  puzzleTitleEl.textContent = `Puzzle ${p.id}`;
+  puzzleTitleEl.textContent = `Puzzle ${puzzleNo(i)} · ${p.tier}`;
   if (puzzleDotEl) puzzleDotEl.style.background = PUZZLE_COLORS[P1];
   puzzlePromptText.textContent = `Red to move — win in ${p.winIn}`;
   setPuzzleStatus('Find the winning move.');
@@ -2533,6 +2550,12 @@ function wire() {
     const cell = e.target.closest('.puzzle-cell');
     if (cell && !cell.disabled) enterPuzzle(Number(cell.dataset.i));
   });
+  if (pzNextUnsolvedBtn) {
+    pzNextUnsolvedBtn.addEventListener('click', () => {
+      const i = firstUnsolvedIndex();
+      if (i >= 0) enterPuzzle(i);
+    });
+  }
   pzHintBtn.addEventListener('click', puzzleHint);
   pzRetryBtn.addEventListener('click', retryPuzzle);
   pzNextBtn.addEventListener('click', nextPuzzle);

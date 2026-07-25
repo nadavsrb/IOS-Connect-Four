@@ -18,8 +18,11 @@ icon, works **offline**, and feels like a native app.
   climbs**: a friendly green helper chirping on Easy, an angry orange one on Hard, and on Insane a
   red-eyed, horned, fanged nightmare that drips, throws sparks off its claw and growls as it releases.
 - 👥 **Two Players** — pass-and-play on one phone.
-- 🧩 **Puzzles** — a ladder of **50+ "play and win" puzzles** that get progressively harder (Warm-up →
-  **Mastermind**, *win in 1* up to *win in 7+*). You're red; find the move that forces a win against the
+- 🧩 **Puzzles** — a ladder of **56 "play and win" puzzles**, sorted strictly easiest → hardest across
+  ten named tiers (Warm-up · Sharp · Tactician · Sniper · Grandmaster · Legend · Mastermind · Oracle ·
+  Nightmare · **Impossible**) from *win in 1* to *win in 10*. Each list cell shows its tier and how
+  deep the forced win is, and **Next unsolved** jumps you to where you left off.
+  You're red; find the move that forces a win against the
   opponent's best defence. Each has a single correct key move at every step. **Every puzzle is unlocked
   from the start** — play them in any order — and the list marks the ones you've solved, with progress
   saved on-device. Every puzzle was **generated and proven correct by the bitboard solver** offline

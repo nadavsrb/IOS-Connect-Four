@@ -1390,7 +1390,10 @@ body::before {
   background: linear-gradient(90deg, var(--accent), #ffbe3c);
   transition: width 0.4s ease;
 }
+.puzzles-bar { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; }
 .puzzles-count { text-align: center; color: var(--text-dim); font-size: 0.82rem; margin: 6px 0 0; }
+.btn-sm { padding: 7px 13px; font-size: 0.76rem; }
+#btn-pz-next-unsolved[hidden] { display: none; }
 
 .puzzle-grid {
   display: grid;
@@ -1433,6 +1436,9 @@ body::before {
 .puzzle-cell:not(:disabled):active { transform: scale(0.95); }
 .puzzle-cell .pz-num { font-size: 1.35rem; font-weight: 800; line-height: 1; }
 .puzzle-cell .pz-tier { font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); }
+/* How deep the forced win is — the most useful difficulty signal, and it was
+   previously only visible after opening the puzzle. */
+.puzzle-cell .pz-win { font-size: 0.53rem; letter-spacing: 0.02em; color: var(--tier); opacity: 0.85; }
 .puzzle-cell .pz-mark { position: absolute; top: 6px; right: 7px; width: 15px; height: 15px; color: var(--text-dim); }
 .puzzle-cell .pz-mark svg { width: 100%; height: 100%; }
 
@@ -1443,6 +1449,9 @@ body::before {
 .puzzle-cell.tier-5 { --tier: #ff3b6b; }
 .puzzle-cell.tier-6 { --tier: #b26bff; }
 .puzzle-cell.tier-7 { --tier: #ff2d6f; }
+.puzzle-cell.tier-8 { --tier: #ff5f2e; }
+.puzzle-cell.tier-9 { --tier: #e0245e; }
+.puzzle-cell.tier-10 { --tier: #ff1744; }
 
 /* Solved: a green wash + tick. Nothing is ever locked, so this is the only state
    a cell carries — it has to read at a glance across a grid of 56. */
