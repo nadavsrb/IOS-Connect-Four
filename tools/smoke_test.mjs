@@ -112,6 +112,12 @@ try {
   // --- Two-player: play a scripted P1 horizontal win (timer off) ---
   await page.locator('#btn-mode-2p').click();
   await wait(300);
+  // The primary action must be reachable without scrolling — the options list
+  // used to grow the screen and push Start below the fold.
+  {
+    const b = await page.locator('#btn-start').boundingBox();
+    ok('Start Game is in view without scrolling', b.y + b.height <= page.viewportSize().height + 1);
+  }
   ok('2P setup shows timer control, hides bot difficulty',
     (await page.locator('#timer-block').isVisible()) &&
     (await page.locator('#difficulty-block').evaluate((el) => el.style.display === 'none')));
@@ -206,6 +212,25 @@ try {
     if ((await discCount()) >= before + 2) { botMoved = true; break; }
   }
   ok('hard bot responds with a move', botMoved);
+
+  // --- Undo vs the bot must always land back on YOUR turn ---
+  // Undoing the bot's reply plus your move is the normal case. The dangerous one
+  // is the bot having opened the round (possible since the toss went random): its
+  // lone move rewinds to *its* turn, which nothing would then play, so undo has to
+  // be unavailable rather than deadlocking the round.
+  await page.locator('#btn-undo').click();
+  await wait(400);
+  ok('undo vs bot returns the turn to you', /You/.test((await page.locator('#turn-text').textContent()) || ''));
+  ok('undo vs bot rewound both plies', (await discCount()) === before);
+  {
+    // Fresh bot round; if the toss hands the bot the opening move, undo must be off.
+    await page.locator('#btn-restart').click();
+    await waitForOpening();
+    await waitForHumanTurn();
+    const botOpened = (await discCount()) === 1;
+    ok(botOpened ? 'undo is disabled when the bot opened the round' : 'undo is disabled on an empty board',
+      await page.locator('#btn-undo').isDisabled());
+  }
   await page.screenshot({ path: `${SHOTS}/05-bot.png` });
   ok('bot mode has no turn timer', await page.locator('#turn-timer').evaluate((el) => el.hidden));
 
@@ -582,13 +607,20 @@ try {
   const t2 = (await page.locator('#turn-timer').textContent()) || '';
   ok('countdown decreases while running', toSec(t2) < toSec(t1));
   ok('background not red before 2/3 elapsed', (await dangerNow()) === 0);
-  // pass the 2/3 mark (~10s of 15s), staying before expiry (~2.5s left)
-  await wait(10000);
-  const dLate = await dangerNow();
-  ok('background reddens after 2/3 elapsed', dLate > 0);
+  // Poll for the wash rather than sampling once after a fixed delay. It only exists
+  // between the 2/3 mark and the end of the round (~5s of a 15s clock) and is
+  // cleared the instant the round ends, so a slow run could sample past the window
+  // and see 0 — which looked like the wash was broken when it wasn't.
+  let reddened = false;
+  for (let i = 0; i < 45; i++) {
+    if ((await dangerNow()) > 0) { reddened = true; break; }
+    if (await page.locator('#overlay-result.is-open').count()) break; // expired already
+    await wait(300);
+  }
+  ok('background reddens after 2/3 elapsed', reddened);
   await page.screenshot({ path: `${SHOTS}/06b-timer-red.png` });
   // let the rest expire (no move)
-  await wait(4000);
+  await page.locator('#overlay-result.is-open').waitFor({ timeout: 12000 }).catch(() => {});
   ok('timeout opens the result overlay', await page.locator('#overlay-result').evaluate((el) => el.classList.contains('is-open')));
   ok('timeout message shown', /ran out of time/.test((await page.locator('#result-sub').textContent()) || ''));
   ok('red wash cleared once the game ended', (await dangerNow()) === 0);

@@ -376,12 +376,32 @@ body::before {
 
 /* ---------------- Setup ---------------- */
 
+/* The options (names, colours, timer, variant, match length) overflow a phone
+   screen, which used to push "Start Game" below the fold — you had to scroll to
+   begin. The options now scroll on their own and Start stays pinned in view. */
 .setup-body {
   display: flex;
   flex-direction: column;
   gap: 12px;
   margin-top: 6px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Fade the cut-off edge so it reads as "more below" rather than a hard crop. */
+  mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 14px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 14px), transparent 100%);
+  padding-bottom: 4px;
 }
+/* .screen only sets a *min*-height, so without a definite height here the screen
+   would simply grow and the page would scroll — putting Start back below the fold.
+   Pinning setup to exactly the viewport box makes .setup-body the thing that
+   scrolls instead. */
+#screen-setup.is-active {
+  height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 32px);
+  max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 32px);
+}
+#screen-setup #btn-start { flex: none; margin-top: 2px; }
 .player-card {
   border: 1px solid var(--stroke);
   background: var(--panel);
@@ -1264,6 +1284,8 @@ body::before {
 .stat-diff { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 .diff-row { display: flex; align-items: center; gap: 10px; }
 .diff-name { width: 62px; font-size: 0.85rem; font-weight: 600; color: var(--text); flex: 0 0 auto; }
+/* Tier names ("Grandmaster", "Impossible") are longer than "Medium". */
+#stats-puzzles .diff-name { width: 88px; font-size: 0.78rem; }
 .diff-bar { flex: 1; height: 8px; border-radius: 999px; background: var(--socket); overflow: hidden; border: 1px solid var(--stroke); }
 .diff-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--p1), var(--accent)); transition: width 0.5s ease; }
 .diff-val { width: 72px; text-align: right; font-size: 0.78rem; color: var(--text-dim); font-variant-numeric: tabular-nums; flex: 0 0 auto; }

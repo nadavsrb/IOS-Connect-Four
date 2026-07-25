@@ -1230,10 +1230,24 @@ function drawWinLine(cells, winner) {
   }
 }
 
+// How many plies to rewind so that it is a HUMAN's turn afterwards. Two-player is
+// always one. Vs the bot it's normally two — its reply plus your move — but if the
+// bot opened the round its lone move rewinds to *its* turn, which nothing would
+// then play, so undo is unavailable there (see updateUndoBtn).
+function undoPlies() {
+  const n = game.history.length;
+  if (n === 0) return 0;
+  if (game.mode !== 'bot') return 1;
+  for (let k = 1; k <= Math.min(2, n); k++) {
+    if (game.history[n - k].current === P1) return k;
+  }
+  return 0;
+}
+
 function undo() {
-  if (game.locked || game.over || !game.active || game.history.length === 0) return;
-  // vs Bot, undo both the bot's reply and your move so it's your turn again.
-  const plies = game.mode === 'bot' ? Math.min(2, game.history.length) : 1;
+  if (game.locked || game.over || !game.active) return;
+  const plies = undoPlies();
+  if (plies === 0) return;
   let snap = null;
   for (let i = 0; i < plies && game.history.length; i++) {
     snap = game.history.pop();
@@ -1261,8 +1275,12 @@ function undo() {
 function updateTurnIndicator() {
   turnIndicator.classList.remove('thinking');
   turnDot.style.setProperty('--turn-color', colorFor(game.current));
-  turnText.textContent = `${game.names[game.current]}'s turn`;
+  turnText.textContent = turnLabel(game.names[game.current]);
 }
+
+// "Alice's turn", but "Your turn" — the default name in bot mode is literally
+// "You", which the possessive turned into "You's turn".
+const turnLabel = (name) => (name === 'You' ? 'Your turn' : `${name}'s turn`);
 
 function setThinking(on) {
   turnIndicator.classList.toggle('thinking', on);
@@ -1273,7 +1291,7 @@ function setThinking(on) {
 }
 
 function updateUndoBtn() {
-  undoBtn.disabled = game.locked || game.over || !game.active || game.history.length === 0;
+  undoBtn.disabled = game.locked || game.over || !game.active || undoPlies() === 0;
 }
 
 function renderScores() {
@@ -2142,7 +2160,9 @@ function openStats() {
 function renderStats() {
   const s = summarize(history);
   $('#stat-total').textContent = String(s.total);
-  $('#stat-bot-winrate').textContent = `${winRate(s.bot)}%`;
+  // "0%" with no games played reads as "you lose every time"; the rows below
+  // already use an em dash for "nothing to report", so match them.
+  $('#stat-bot-winrate').textContent = s.bot.played ? `${winRate(s.bot)}%` : '—';
   $('#stat-streak').textContent = String(s.streakCurrent);
   $('#stat-streak-best').textContent = String(s.streakBest);
   $('#stat-bot-line').textContent = s.bot.played
@@ -2166,7 +2186,39 @@ function renderStats() {
     diffWrap.appendChild(row);
   }
 
-  $('#stat-empty').hidden = s.total > 0;
+  renderPuzzleStats();
+  $('#stat-empty').hidden = s.total > 0 || puzzleProgress.solved.length > 0;
+}
+
+// Puzzle progress belongs on the Stats screen too — it was the one major section
+// with no presence here, and it fills the space the game stats leave empty.
+function renderPuzzleStats() {
+  const wrap = $('#stats-puzzles');
+  const line = $('#stat-pz-line');
+  if (!wrap || !line) return;
+  const solved = new Set(puzzleProgress.solved);
+  const done = PUZZLES.filter((p) => solved.has(p.id)).length;
+  line.textContent = done ? `${done} / ${PUZZLES.length} solved` : 'None solved yet';
+
+  // One row per tier, in ladder order, so you can see how far up you've climbed.
+  const tiers = [];
+  for (const p of PUZZLES) {
+    let t = tiers.find((x) => x.name === p.tier);
+    if (!t) tiers.push((t = { name: p.tier, total: 0, done: 0 }));
+    t.total++;
+    if (solved.has(p.id)) t.done++;
+  }
+  wrap.innerHTML = '';
+  for (const t of tiers) {
+    const pct = Math.round((t.done / t.total) * 100);
+    const row = document.createElement('div');
+    row.className = 'diff-row';
+    row.innerHTML =
+      `<span class="diff-name">${t.name}</span>` +
+      `<span class="diff-bar"><i style="width:${pct}%"></i></span>` +
+      `<span class="diff-val">${t.done} / ${t.total}</span>`;
+    wrap.appendChild(row);
+  }
 }
 
 // ---------------------------------------------------------------- puzzles
