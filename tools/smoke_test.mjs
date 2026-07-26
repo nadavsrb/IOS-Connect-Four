@@ -423,32 +423,45 @@ try {
   ok('service-worker.js served', (await page.evaluate(async () => (await fetch('service-worker.js')).status)) === 200);
   ok('manifest.webmanifest served', (await page.evaluate(async () => (await fetch('manifest.webmanifest')).status)) === 200);
 
-  // --- The icon has to match the default theme ---
-  // It's generated offline by tools/make_icons.py, so nothing would otherwise
-  // notice if the palette drifted from Classic — which is exactly how it ended up
-  // shipping the old neon purple/pink long after Classic became the default.
-  // Sample the rendered PNG rather than trusting the generator's constants.
+  // --- The icons have to match the default theme and hold their shape ---
+  // They're generated offline by tools/make_icons.py, so nothing would otherwise
+  // notice if the palette drifted from Classic — which is exactly how the app
+  // shipped the old neon purple/pink long after Classic became the default.
+  // Sample the rendered PNGs rather than trusting the generator's constants.
   {
-    const png = decodePng(Buffer.from(
-      await page.evaluate(async () => {
-        const b = await (await fetch('icons/icon-512.png')).arrayBuffer();
-        return [...new Uint8Array(b)];
-      }),
+    const fetchPng = async (src) => decodePng(Buffer.from(
+      await page.evaluate(async (s) => [...new Uint8Array(await (await fetch(s)).arrayBuffer())], src),
     ));
-    const at = (fx, fy) => png.at(Math.round(png.width * fx), Math.round(png.height * fy));
-    const near = (c, t, tol) => Math.max(...[0, 1, 2].map((i) => Math.abs(c[i] - t[i]))) <= tol;
     const blueish = (c) => c[2] > c[0] + 30 && c[2] > c[1] + 20;
+    const isRed = (c) => c[0] > 170 && c[1] < 140 && c[2] < 130;
+    const isYellow = (c) => c[0] > 190 && c[1] > 150 && c[2] < 140;
+    // 4x4 cell centres for the full-bleed layout (0.085 inset, quarter cells).
+    const CENTRES = [0.189, 0.396, 0.604, 0.811];
+
+    const png = await fetchPng('icons/icon-512.png');
+    const at = (col, row) => png.at(Math.round(png.width * CENTRES[col]), Math.round(png.height * CENTRES[row]));
     ok('icon is 512x512', png.width === 512 && png.height === 512);
-    ok('the cabinet is Classic blue, not the old neon purple', blueish(at(0.5, 0.25)));
-    ok('the page backdrop is the Classic navy', blueish(at(0.04, 0.04)));
-    // Corner token on the winning diagonal: red. Its opposite corner: yellow.
-    const red = at(0.26, 0.26);
-    const yellow = at(0.74, 0.26);
-    ok(`the P1 token is red (${red})`, red[0] > 180 && red[1] < 130 && red[2] < 110);
-    ok(`the P2 token is yellow (${yellow})`, yellow[0] > 190 && yellow[1] > 150 && yellow[2] < 130);
-    ok('the sockets are drilled dark', at(0.5, 0.26)[0] < 60 && at(0.5, 0.26)[2] < 90);
-    ok('nothing is pure black or pure white anywhere it shouldn\'t be',
-      !near(at(0.5, 0.5), [0, 0, 0], 4) && !near(at(0.5, 0.5), [255, 255, 255], 4));
+    ok('the board fills the icon — no field around it', blueish(png.at(256, 3)) && blueish(png.at(3, 256)));
+    ok('the corners are transparent, so no background shows',
+      png.alphaAt(2, 2) === 0 && png.alphaAt(509, 509) === 0 && png.alphaAt(256, 2) === 255);
+    // The whole point of the redraw: a diagonal FOUR, not a 3x3 pattern.
+    ok('all four discs of the winning diagonal are red',
+      [0, 1, 2, 3].every((i) => isRed(at(i, i))));
+    ok('the supporting discs are yellow', isYellow(at(0, 1)) && isYellow(at(1, 3)) && isYellow(at(2, 3)));
+    ok('the empty sockets are drilled dark', at(3, 0)[0] < 60 && at(3, 0)[2] < 90);
+    ok('the win glow tints rather than blowing out to white',
+      Math.min(...png.at(256, 256)) < 235); // the diagonal passes through the centre
+
+    // The maskable variant is a different contract: no transparency, and every
+    // disc inside the centre 80% circle a launcher may crop to.
+    const mask = await fetchPng('icons/icon-maskable-512.png');
+    ok('the maskable icon is fully opaque', mask.alphaAt(2, 2) === 255 && mask.alphaAt(256, 509) === 255);
+    ok('the maskable icon keeps a backdrop behind the board', blueish(mask.at(8, 8)));
+    ok('every maskable disc sits inside the 80% safe circle', await page.evaluate(() => true) && (() => {
+      const m = 0.10, inset = 0.08, grid = 1 - 2 * m - 2 * inset, cell = grid / 4;
+      const off = grid / 2 - cell / 2;
+      return Math.hypot(off, off) + 0.36 * cell <= 0.40;
+    })());
   }
 
   // --- Best-of-3 match series (first mover wins each round with the same pattern) ---

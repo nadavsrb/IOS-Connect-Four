@@ -67,7 +67,9 @@ export function decodePng(buf) {
     const o = y * stride + x * channels;
     return [pixels[o], pixels[o + 1], pixels[o + 2]];
   };
-  return { width, height, at };
+  // 255 for RGB images, which have no alpha channel to read.
+  const alphaAt = (x, y) => (channels === 4 ? pixels[y * stride + x * channels + 3] : 255);
+  return { width, height, channels, at, alphaAt };
 }
 
 // Largest single-row colour step down a column. A gradient never steps; a flat
