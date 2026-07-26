@@ -405,6 +405,7 @@ function haptic(pattern) {
 // ---------------------------------------------------------------- DOM refs
 
 const appEl = $('#app');
+const fxEl = $('#fx');
 const boardEl = $('#board');
 const devourEl = $('#devour');
 const botRobot = $('#bot-robot');
@@ -563,7 +564,23 @@ const colorFor = (player) => game.colors[player];
 // ---------------------------------------------------------------- screens
 
 let currentScreen = 'screen-menu';
+// The fx overlays live in #fx, outside the screens, so leaving a screen no
+// longer hides its overlays the way `display: none` used to. Tear down anything
+// that belongs to a different screen — here rather than at each navigation call
+// site, so a new path can't forget one (the result card outliving the game
+// screen would sit on top of the replay screen and swallow every tap).
+function clearForeignFx(id) {
+  if (id !== 'screen-game') {
+    closeOverlay();
+    hideBotIntro();
+    hideToss();
+    clearDevour();
+  }
+  if (id !== 'screen-puzzle') clearPuzzleLoss();
+}
+
 function showScreen(id, dir = null) {
+  clearForeignFx(id);
   const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   document.querySelectorAll('.screen').forEach((s) => {
     const active = s.id === id;
@@ -1279,13 +1296,26 @@ function runDevour(done) {
   });
 }
 
-// One hard kick of the whole app, restartable (the class has to come off before
-// it can be re-added or the animation won't replay).
+// One hard kick of the whole screen — the app and the fx layer together, since
+// the maw lives in the latter and should jolt with the world, not hang still in
+// front of it. Restartable (the class has to come off before it can be re-added
+// or the animation won't replay).
 function quake() {
-  appEl.classList.remove('quake');
-  void appEl.offsetWidth;
-  appEl.classList.add('quake');
-  appEl.addEventListener('animationend', () => appEl.classList.remove('quake'), { once: true });
+  for (const el of [appEl, fxEl]) {
+    if (!el) continue;
+    el.classList.remove('quake');
+    void el.offsetWidth;
+    el.classList.add('quake');
+    // animationend bubbles, and both of these have animating descendants (the
+    // win-line pulse, the jaws), so the listener has to check it's the kick
+    // finishing and not something inside ending first.
+    const off = (e) => {
+      if (e.target !== el) return;
+      el.classList.remove('quake');
+      el.removeEventListener('animationend', off);
+    };
+    el.addEventListener('animationend', off);
+  }
 }
 
 // Cancel the sequence and put the board back. `is-eaten` deliberately survives
@@ -1299,6 +1329,7 @@ function clearDevour() {
   }
   boardEl.classList.remove('is-eaten');
   appEl.classList.remove('quake');
+  fxEl?.classList.remove('quake');
 }
 
 function highlightWin(cells, winner) {
@@ -1512,6 +1543,7 @@ function goMenu() {
   clearHint();
   hideBotRobot();
   clearDevour();
+  clearPuzzleLoss(); // the fx layer is outside the screens, so nothing else hides it
   game.active = false;
   game.over = false;
   game.locked = false;
@@ -1709,12 +1741,14 @@ function spawnConfetti(COUNT, layer = confettiLayer, colors) {
 // ---------------------------------------------------------------- full-column shake
 
 // Ash for a lost puzzle: the anti-confetti. Confetti is fast, bright and flung
-// upward; this drifts straight down, slowly, in cold grey, and lingers.
+// upward; this drifts straight down, slowly, in cold grey, and lingers. The
+// layer is the whole screen, so flecks are seeded just above the top edge (a
+// height-proportional spread would park most of them too far up to ever arrive)
+// and staggered across the sequence so it keeps falling the whole time.
 function spawnAsh(count, layer) {
   if (!layer || prefersReducedMotion()) return;
   const rect = layer.getBoundingClientRect();
   const width = rect.width || 340;
-  const height = rect.height || 340;
   const flecks = [];
 
   for (let i = 0; i < count; i++) {
@@ -1730,13 +1764,13 @@ function spawnAsh(count, layer) {
     layer.appendChild(el);
     flecks.push({
       el,
-      y: -10 - Math.random() * height * 0.5,
-      vy: (streak ? 0.9 : 0.35) + Math.random() * 0.5, // slow — this is falling ash, not confetti
+      y: -20 - Math.random() * 170,
+      vy: (streak ? 1.3 : 0.55) + Math.random() * 0.85, // slow — this is falling ash, not confetti
       sway: streak ? 2 : 6 + Math.random() * 12,
       phase: Math.random() * Math.PI * 2,
       drift: 0.6 + Math.random() * 1.4,
       peak: (streak ? 0.25 : 0.4) + Math.random() * 0.45,
-      delay: Math.random() * 1100,
+      delay: Math.random() * 1500,
     });
   }
 
@@ -2508,6 +2542,9 @@ function firstUnsolvedIndex() {
 }
 
 function openPuzzles() {
+  // The loss layers live in #fx now, outside the screen, so leaving the puzzle
+  // no longer hides them by itself — they have to be torn down explicitly.
+  clearPuzzleLoss();
   renderPuzzleList();
   showScreen('screen-puzzles', 'fwd');
 }
@@ -2586,7 +2623,7 @@ function puzzleFail(reason, title = 'Out of moves') {
   setTimeout(() => {
     if (puzzle.gen !== gen) return;
     puzzleGloomEl?.classList.add('is-on'); // the dark starts closing in
-    spawnAsh(42, puzzleAshLayer);
+    spawnAsh(70, puzzleAshLayer); // a screen-sized layer needs more than a board-sized one
   }, 180);
 
   setTimeout(() => {

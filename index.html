@@ -222,73 +222,6 @@
         <button id="btn-newround" class="btn btn-ghost">New Round</button>
       </div>
 
-      <!-- Confetti burst layer (populated by JS on a win) -->
-      <div id="confetti" aria-hidden="true"></div>
-
-      <!-- Losing to the bot: the machine drops the polite act, rears up over the
-           board and eats it. Skinned per difficulty from the same palette as
-           #bot-robot, so the thing that swallows you is the thing you played. -->
-      <div id="devour" class="devour" aria-hidden="true">
-        <span class="dv-gloom"></span>
-        <div class="dv-maw">
-          <span class="dv-eye dv-eye-l"></span>
-          <span class="dv-eye dv-eye-r"></span>
-          <div class="dv-jaw dv-jaw-top">
-            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
-          </div>
-          <div class="dv-jaw dv-jaw-bot">
-            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
-          </div>
-        </div>
-      </div>
-
-      <!-- Opponent reveal (vs Bot only): boots the machine up before the toss and
-           gets more menacing with the difficulty. The robot itself is cloned from
-           #bot-robot at runtime so the skins live in one place. -->
-      <div id="bot-intro" class="bot-intro" aria-hidden="true">
-        <span class="bi-scan"></span>
-        <div class="bi-card">
-          <p class="bi-kicker" id="bi-kicker"></p>
-          <div class="bi-stage" id="bi-stage"></div>
-          <p class="bi-level" id="bi-level"></p>
-          <p class="bi-taunt" id="bi-taunt"></p>
-          <p class="bi-skip">Tap to skip</p>
-        </div>
-      </div>
-
-      <!-- Who-goes-first toss: the highlight ping-pongs between the two players,
-           slowing down until it lands on the one who starts. -->
-      <div id="toss" class="toss" aria-hidden="true">
-        <div class="toss-card">
-          <p class="toss-title" id="toss-title">Who goes first?</p>
-          <div class="toss-sides">
-            <div class="toss-side" id="toss-side-1">
-              <span class="toss-disc"></span>
-              <span class="toss-name" id="toss-name-1"></span>
-            </div>
-            <span class="toss-vs">vs</span>
-            <div class="toss-side" id="toss-side-2">
-              <span class="toss-disc"></span>
-              <span class="toss-name" id="toss-name-2"></span>
-            </div>
-          </div>
-          <p class="toss-result" id="toss-result" aria-live="polite"></p>
-        </div>
-      </div>
-
-      <!-- Result overlay -->
-      <div id="overlay-result" class="overlay" aria-hidden="true">
-        <div class="result-card">
-          <div class="result-disc" id="result-disc"></div>
-          <h2 class="result-title" id="result-title">Player 1 wins!</h2>
-          <p class="result-sub" id="result-sub"></p>
-          <div class="result-actions">
-            <button id="btn-playagain" class="btn btn-primary btn-wide">Play Again</button>
-            <button id="btn-watch-replay" class="btn btn-ghost btn-wide"><span class="ico" data-icon="play"></span> Watch replay</button>
-            <button class="btn btn-ghost btn-wide" data-nav="menu">Main Menu</button>
-          </div>
-        </div>
-      </div>
     </section>
 
     <!-- ================= REPLAY / GAME REVIEW ================= -->
@@ -423,10 +356,6 @@
 
       <div class="board-wrap">
         <div id="puzzle-board" class="board" role="grid" aria-label="Puzzle board"></div>
-        <!-- Ash drifting down over a lost puzzle (the opposite of the win confetti) -->
-        <div id="puzzle-ash" aria-hidden="true"></div>
-        <!-- Dark closing in from the edges of the board once it's lost -->
-        <span id="puzzle-gloom" class="puzzle-gloom" aria-hidden="true"></span>
       </div>
 
       <p class="puzzle-status" id="puzzle-status" aria-live="polite">&nbsp;</p>
@@ -437,27 +366,106 @@
         <button id="pz-next" class="btn btn-primary" hidden>Next <span class="ico" data-icon="play"></span></button>
       </div>
 
-      <!-- Confetti burst layer for a solved puzzle -->
-      <div id="puzzle-confetti" aria-hidden="true"></div>
-
-      <!-- Loss panel. Covers the whole screen rather than just the board, so a
-           failed puzzle lands with the same weight as losing a game. -->
-      <div id="puzzle-lost" class="loss-screen" aria-hidden="true">
-        <div class="loss-card">
-          <span class="pl-disc" aria-hidden="true">
-            <i class="pl-half pl-half-l"></i>
-            <i class="pl-half pl-half-r"></i>
-          </span>
-          <p class="loss-title" id="pl-title">Out of moves</p>
-          <p class="loss-sub" id="pl-sub"></p>
-          <div class="loss-actions">
-            <button id="pl-retry" class="btn btn-primary btn-wide">Try again</button>
-            <button id="pl-back" class="btn btn-ghost btn-wide">Puzzle list</button>
-          </div>
-        </div>
-      </div>
     </section>
 
+  </div>
+
+  <!-- ================= FULL-SCREEN FX LAYER =================
+       Every overlay that is meant to cover the phone lives here, outside
+       #app. #app carries the safe-area padding and a max-width, so anything
+       positioned inside it stops short of the screen edges — which is why the
+       opponent reveal used to sit in a letterboxed panel with the background
+       showing around it. These are fixed to the viewport instead, and being
+       outside #app also keeps them steady when .quake transforms it. -->
+  <div id="fx" class="fx">
+    <!-- Puzzle loss: dark closing in, then ash and grit drifting down over it. -->
+    <span id="puzzle-gloom" class="puzzle-gloom" aria-hidden="true"></span>
+    <div id="puzzle-ash" aria-hidden="true"></div>
+
+    <!-- Confetti burst layers (populated by JS on a win / a solved puzzle) -->
+    <div id="confetti" aria-hidden="true"></div>
+    <div id="puzzle-confetti" aria-hidden="true"></div>
+
+    <!-- Losing to the bot: the machine drops the polite act, rears up over the
+         board and eats it. Skinned per difficulty from the same palette as
+         #bot-robot, so the thing that swallows you is the thing you played. -->
+    <div id="devour" class="devour" aria-hidden="true">
+      <span class="dv-gloom"></span>
+      <div class="dv-maw">
+        <span class="dv-eye dv-eye-l"></span>
+        <span class="dv-eye dv-eye-r"></span>
+        <div class="dv-jaw dv-jaw-top">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+        <div class="dv-jaw dv-jaw-bot">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+      </div>
+    </div>
+
+    <!-- Who-goes-first toss: the highlight ping-pongs between the two players,
+         slowing down until it lands on the one who starts. -->
+    <div id="toss" class="toss" aria-hidden="true">
+      <div class="toss-card">
+        <p class="toss-title" id="toss-title">Who goes first?</p>
+        <div class="toss-sides">
+          <div class="toss-side" id="toss-side-1">
+            <span class="toss-disc"></span>
+            <span class="toss-name" id="toss-name-1"></span>
+          </div>
+          <span class="toss-vs">vs</span>
+          <div class="toss-side" id="toss-side-2">
+            <span class="toss-disc"></span>
+            <span class="toss-name" id="toss-name-2"></span>
+          </div>
+        </div>
+        <p class="toss-result" id="toss-result" aria-live="polite"></p>
+      </div>
+    </div>
+
+    <!-- Opponent reveal (vs Bot only): boots the machine up before the toss and
+         gets more menacing with the difficulty. The robot itself is cloned from
+         #bot-robot at runtime so the skins live in one place. -->
+    <div id="bot-intro" class="bot-intro" aria-hidden="true">
+      <span class="bi-scan"></span>
+      <div class="bi-card">
+        <p class="bi-kicker" id="bi-kicker"></p>
+        <div class="bi-stage" id="bi-stage"></div>
+        <p class="bi-level" id="bi-level"></p>
+        <p class="bi-taunt" id="bi-taunt"></p>
+        <p class="bi-skip">Tap to skip</p>
+      </div>
+    </div>
+
+    <!-- Result overlay -->
+    <div id="overlay-result" class="overlay" aria-hidden="true">
+      <div class="result-card">
+        <div class="result-disc" id="result-disc"></div>
+        <h2 class="result-title" id="result-title">Player 1 wins!</h2>
+        <p class="result-sub" id="result-sub"></p>
+        <div class="result-actions">
+          <button id="btn-playagain" class="btn btn-primary btn-wide">Play Again</button>
+          <button id="btn-watch-replay" class="btn btn-ghost btn-wide"><span class="ico" data-icon="play"></span> Watch replay</button>
+          <button class="btn btn-ghost btn-wide" data-nav="menu">Main Menu</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Puzzle loss panel -->
+    <div id="puzzle-lost" class="loss-screen" aria-hidden="true">
+      <div class="loss-card">
+        <span class="pl-disc" aria-hidden="true">
+          <i class="pl-half pl-half-l"></i>
+          <i class="pl-half pl-half-r"></i>
+        </span>
+        <p class="loss-title" id="pl-title">Out of moves</p>
+        <p class="loss-sub" id="pl-sub"></p>
+        <div class="loss-actions">
+          <button id="pl-retry" class="btn btn-primary btn-wide">Try again</button>
+          <button id="pl-back" class="btn btn-ghost btn-wide">Puzzle list</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="js/app.js"></script>

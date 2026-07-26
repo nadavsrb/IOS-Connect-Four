@@ -139,7 +139,7 @@ python3 -m http.server 8080
 ## Project layout
 
 ```
-index.html            App shell + all screens (menu / setup / game / result)
+index.html            App shell, all screens, and #fx (the full-screen overlay layer)
 styles.css            Neon theme, animations, iPhone safe-area handling
 js/engine.js          Pure Connect Four rules (drop, win/draw detection)
 js/bot.js             Bot opponent (easy/medium heuristics + hard minimax) + win-% estimate

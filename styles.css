@@ -103,6 +103,38 @@ body::before {
   100% { transform: scale(1.08); }
 }
 
+/* ---------------- Full-screen FX layer ---------------- */
+/* Host for every overlay that is supposed to cover the phone: the opponent
+   reveal, the toss, the result card, the maw, the puzzle loss panel, confetti
+   and ash. They used to live inside their screen, which meant they inherited
+   #app's safe-area padding and 560px max-width and stopped short of the edges —
+   the reveal read as a letterboxed panel with the page showing around it.
+   Anchored to the viewport here instead, so `inset: 0` on a child really is the
+   whole screen. The high z-index is required: #app is position:relative with
+   z-index:auto, so it is NOT a stacking context and its descendants (e.g.
+   #bot-robot at z-index 20) compete at the root — this has to sit above them.
+   Being outside #app also keeps these steady while .quake transforms it. */
+.fx {
+  position: fixed;
+  inset: 0;
+  min-height: 100lvh; /* same belt-and-braces sizing as the neon layer */
+  z-index: 50;
+  overflow: hidden;
+  pointer-events: none; /* taps fall through to the app until something opens */
+}
+/* Padding for the cards inside, so nothing lands under the notch or the home
+   indicator now that these layers reach the physical edges. */
+.fx > .overlay,
+.fx > .bot-intro,
+.fx > .toss,
+.fx > .loss-screen {
+  padding:
+    calc(var(--safe-top) + 22px)
+    calc(var(--safe-right) + 22px)
+    calc(var(--safe-bottom) + 22px)
+    calc(var(--safe-left) + 22px);
+}
+
 /* ---------------- App shell / screens ---------------- */
 
 .app {
@@ -1610,14 +1642,13 @@ body::before {
 /* The four that beat you keeps its colour — it's what you want to look at. */
 #puzzle-board.is-lost .disc.win { filter: saturate(2.2) brightness(1.5); transform: none; }
 
-/* Dark creeping in from the edges of the board. */
+/* Dark creeping in from the edges of the screen. */
 .puzzle-gloom {
   position: absolute;
-  inset: -6%;
+  inset: 0;
   z-index: 4;
   pointer-events: none;
-  border-radius: 24px;
-  background: radial-gradient(64% 58% at 50% 50%, transparent 22%, rgba(2, 2, 7, 0.86) 100%);
+  background: radial-gradient(58% 44% at 50% 46%, transparent 30%, rgba(2, 2, 7, 0.88) 100%);
   opacity: 0;
   transform: scale(1.35);
   transition: opacity 1s ease, transform 1.8s cubic-bezier(0.25, 0.6, 0.3, 1);
@@ -1791,8 +1822,10 @@ body::before {
 .devour.diff-insane .dv-eye { width: 42px; height: 42px; box-shadow: 0 0 48px 14px var(--dv); }
 .devour.diff-easy .dv-eye { width: 26px; height: 26px; }
 
-/* The whole app kicks on the bite. */
-.app.quake { animation: quake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
+/* The whole screen kicks on the bite — the app and the fx layer together, so the
+   maw jolts with the world behind it instead of hanging still in front of it. */
+.app.quake,
+.fx.quake { animation: quake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
 @keyframes quake {
   10%, 90% { transform: translate3d(-2px, 1px, 0); }
   20%, 80% { transform: translate3d(4px, -3px, 0); }

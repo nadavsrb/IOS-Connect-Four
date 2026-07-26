@@ -25,6 +25,28 @@ page.on('console', (m) => {
 page.on('pageerror', (e) => consoleErrors.push(String(e)));
 
 const discCount = () => page.locator('#board .disc').count();
+// Every animation layer is meant to cover the phone edge to edge. #app carries
+// the safe-area padding and a 560px max-width, so anything positioned inside it
+// stops short of the screen — which is what letterboxed the opponent reveal.
+// Measure against the viewport, never against the app box.
+//
+// Layout boxes, not getBoundingClientRect: several of these layers are *meant* to
+// be transformed while they play (the gloom scales in, the quake kicks the whole
+// fx layer), and a painted box shifted 7px by a shake is not a coverage bug.
+const coversViewport = async (sel) => {
+  const vp = page.viewportSize();
+  return page.locator(sel).evaluate((el, v) => {
+    const fx = document.getElementById('fx');
+    const s = getComputedStyle(fx);
+    const fxFull =
+      s.position === 'fixed' && parseFloat(s.top) === 0 && parseFloat(s.left) === 0 &&
+      fx.offsetWidth >= v.width - 1 && fx.offsetHeight >= v.height - 1;
+    if (el === fx) return fxFull;
+    return fxFull && el.offsetParent === fx &&
+      el.offsetLeft === 0 && el.offsetTop === 0 &&
+      el.offsetWidth >= v.width - 1 && el.offsetHeight >= v.height - 1;
+  }, vp);
+};
 const dropAt = async (col, settle = 560) => {
   await page.locator(`#board .cell[data-col="${col}"]`).first().click();
   await wait(settle);
@@ -190,6 +212,8 @@ try {
   // --- Opponent reveal: the bot boots up before the toss, skinned by difficulty ---
   await page.locator('#bot-intro.is-open').waitFor({ timeout: 5000 });
   ok('vs bot opens with the opponent reveal', true);
+  ok('the fx layer is the whole viewport', await coversViewport('#fx'));
+  ok('the opponent reveal fills the screen', await coversViewport('#bot-intro'));
   ok('the reveal is skinned for the chosen level',
     ((await page.locator('#bot-intro').getAttribute('class')) || '').includes('diff-hard'));
   ok('the reveal names the level', /HARD/.test((await page.locator('#bi-level').textContent()) || ''));
@@ -450,6 +474,7 @@ try {
     ok('the maw is skinned for the level you lost to',
       ((await page.locator('#devour').getAttribute('class')) || '').includes('diff-insane'));
     ok('the board is drawn into the mouth', await page.locator('#board').evaluate((el) => el.classList.contains('is-eaten')));
+    ok('the maw fills the screen', await coversViewport('#devour'));
     await page.locator('#devour.jaws-open').waitFor({ timeout: 4000 }).catch(() => {});
     // No extra wait: a full-page capture at 3x costs ~half a second on its own,
     // which lands this shot near the end of the 0.6s opening.
@@ -466,6 +491,14 @@ try {
       await page.locator('#overlay-result').evaluate((el) => el.classList.contains('is-loss')));
     ok('the headline names the defeat, not the winner',
       /Nibbled|Swallowed|Crunched|DEVOURED/.test((await page.locator('#result-title').textContent()) || ''));
+    ok('the result overlay fills the screen', await coversViewport('#overlay-result'));
+    // The bite kicks the fx layer with a transform; it has to come back off, or
+    // every overlay after it sits a few pixels out of place for good.
+    ok('the screen kick leaves no residual transform on the fx layer',
+      await page.locator('#fx').evaluate((el) => {
+        const t = getComputedStyle(el).transform;
+        return (t === 'none' || t === 'matrix(1, 0, 0, 1, 0, 0)') && !el.classList.contains('quake');
+      }));
     ok('the maw is gone once the card is up', (await page.locator('#devour.is-open').count()) === 0);
     await page.screenshot({ path: `${SHOTS}/13c-devour-card.png` });
     // A new round has to put the board back — the swallow must not persist.
@@ -492,6 +525,12 @@ try {
   await page.locator('#btn-watch-replay').click();
   await wait(300);
   ok('replay screen is active', await page.locator('#screen-replay').evaluate((el) => el.classList.contains('is-active')));
+  // The overlays are no longer inside the screen that owns them, so nothing hides
+  // them implicitly: leaving has to tear them down or the result card sits on top
+  // of the replay screen and eats every tap.
+  ok('the result card does not outlive the game screen', (await page.locator('#overlay-result.is-open').count()) === 0);
+  ok('nothing in the fx layer is left open on the replay screen',
+    (await page.locator('#fx .is-open').count()) === 0);
   const rpDiscs = () => page.locator('#replay-board .disc').count();
   ok('replay starts on an empty board', (await rpDiscs()) === 0);
   await page.locator('#rp-next').click();
@@ -642,6 +681,8 @@ try {
   ok('ash drifts down over the lost board', (await page.locator('#puzzle-ash .ash-fleck').count()) > 0);
   ok('some of the fall is grit, not just ash', (await page.locator('#puzzle-ash .ash-fleck.long').count()) > 0);
   ok('the dark closes in on the board', (await page.locator('#puzzle-gloom.is-on').count()) === 1);
+  ok('the gloom and the ash fill the screen',
+    (await coversViewport('#puzzle-gloom')) && (await coversViewport('#puzzle-ash')));
   // Every disc has to carry its own sag delay, or the collapse happens in one
   // flat step instead of rolling up the board.
   const sagged = await page.locator('#puzzle-board .disc').evaluateAll(
@@ -655,6 +696,7 @@ try {
     ((await page.locator('#pl-sub').textContent()) || '').length > 10);
   ok('the cracked disc is in two halves that can come apart',
     (await page.locator('#puzzle-lost .pl-half').count()) === 2);
+  ok('the puzzle loss screen fills the screen', await coversViewport('#puzzle-lost'));
   await wait(900); // let the split finish before capturing it
   await page.screenshot({ path: `${SHOTS}/13b-puzzle-lost.png` });
 
