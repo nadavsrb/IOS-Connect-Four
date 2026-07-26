@@ -40,6 +40,20 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
+
+  /* How far the fixed full-screen layers overshoot the viewport, top and bottom.
+     On an iOS standalone PWA the initial containing block can be *shorter* than
+     the physical screen: `position: fixed; inset: 0` and every viewport unit
+     (100lvh included) then stop above the real bottom edge, and the only thing
+     painting the strip that's left is the root element's background COLOUR —
+     which shows as a flat band under a gradient (measured 61pt tall on an
+     iPhone 17 Pro, exactly --canvas). No viewport unit reports the missing
+     strip, so there is nothing to measure; instead the layers deliberately
+     bleed past the edges. They are backdrop layers that clip their own
+     overflow, so overshooting is free, and unlike a measured height it can
+     never come up short. A stretched gradient has no seam; a mismatched flat
+     colour always does. */
+  --bleed: max(96px, 12vh);
 }
 
 * { box-sizing: border-box; }
@@ -74,20 +88,19 @@ html {
 }
 body { background: transparent; }
 
-/* Animated neon background. Sized with `inset: 0` rather than any height value:
-   a fixed box with top and bottom both pinned always fills the viewport by
-   layout, so there is nothing to measure and nothing to get wrong. Earlier
-   versions used 100lvh and then a JS-measured pixel height (--app-vh), and both
-   could come up short on an iOS *standalone* PWA — the layer stopped ~62pt above
-   the screen bottom, exposing the canvas colour as a dark band over the home
-   indicator. `min-height: 100lvh` is a belt on top of that brace: whichever of
-   the two resolves larger wins, so a short ICB can't shorten the layer either.
-   The drift is scale-only (≥ 1.02) so it can never uncover an edge. */
+/* Animated neon background. Overshoots the viewport by --bleed top and bottom
+   rather than being pinned to it: `inset: 0`, a JS-measured pixel height
+   (--app-vh) and `100lvh` were all tried here and all three came up ~61pt short
+   on an iOS standalone PWA, leaving the root canvas colour showing as a flat
+   band over the home indicator. See --bleed. The gradient stretches with the
+   taller box, which is why this is safe — a gradient 12% taller than intended
+   is invisible, whereas any hard edge against a flat colour is not.
+   The drift is scale-only (≥ 1.02) so it can never uncover an edge either. */
 body::before {
   content: "";
   position: fixed;
-  inset: 0;
-  min-height: 100lvh;
+  inset: calc(-1 * var(--bleed)) 0;
+  min-height: calc(100lvh + 2 * var(--bleed));
   z-index: -2;
   /* Neon glows anchored at BOTH the top and bottom (plus a big central purple)
      so colour fills the whole height — no black band on tall screens. The base
@@ -116,22 +129,24 @@ body::before {
    Being outside #app also keeps these steady while .quake transforms it. */
 .fx {
   position: fixed;
-  inset: 0;
-  min-height: 100lvh; /* same belt-and-braces sizing as the neon layer */
+  inset: calc(-1 * var(--bleed)) 0; /* overshoot: see --bleed */
+  min-height: calc(100lvh + 2 * var(--bleed));
   z-index: 50;
   overflow: hidden;
   pointer-events: none; /* taps fall through to the app until something opens */
 }
 /* Padding for the cards inside, so nothing lands under the notch or the home
-   indicator now that these layers reach the physical edges. */
+   indicator now that these layers reach the physical edges. --bleed is added
+   back so the clearance is measured from the real screen edge and not from the
+   overshoot, which sits off-screen. */
 .fx > .overlay,
 .fx > .bot-intro,
 .fx > .toss,
 .fx > .loss-screen {
   padding:
-    calc(var(--safe-top) + 22px)
+    calc(var(--bleed) + var(--safe-top) + 22px)
     calc(var(--safe-right) + 22px)
-    calc(var(--safe-bottom) + 22px)
+    calc(var(--bleed) + var(--safe-bottom) + 22px)
     calc(var(--safe-left) + 22px);
 }
 

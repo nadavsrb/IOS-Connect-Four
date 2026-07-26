@@ -30,21 +30,17 @@ const discCount = () => page.locator('#board .disc').count();
 // stops short of the screen — which is what letterboxed the opponent reveal.
 // Measure against the viewport, never against the app box.
 //
-// Layout boxes, not getBoundingClientRect: several of these layers are *meant* to
-// be transformed while they play (the gloom scales in, the quake kicks the whole
-// fx layer), and a painted box shifted 7px by a shake is not a coverage bug.
+// Containment, not equality, and with a tolerance: these layers deliberately
+// overshoot the viewport (--bleed, for the iOS standalone short-ICB band) and
+// several are transformed while they play — the gloom scales in, the screen kick
+// shifts the whole fx layer by up to 7px. Covering *more* than the screen is the
+// intent; only falling short is a bug.
 const coversViewport = async (sel) => {
   const vp = page.viewportSize();
   return page.locator(sel).evaluate((el, v) => {
-    const fx = document.getElementById('fx');
-    const s = getComputedStyle(fx);
-    const fxFull =
-      s.position === 'fixed' && parseFloat(s.top) === 0 && parseFloat(s.left) === 0 &&
-      fx.offsetWidth >= v.width - 1 && fx.offsetHeight >= v.height - 1;
-    if (el === fx) return fxFull;
-    return fxFull && el.offsetParent === fx &&
-      el.offsetLeft === 0 && el.offsetTop === 0 &&
-      el.offsetWidth >= v.width - 1 && el.offsetHeight >= v.height - 1;
+    const r = el.getBoundingClientRect();
+    const T = 8; // the screen kick can offset the painted box by this much
+    return r.left <= T && r.top <= T && r.right >= v.width - T && r.bottom >= v.height - T;
   }, vp);
 };
 const dropAt = async (col, settle = 560) => {
@@ -111,6 +107,29 @@ try {
   await page.goto(BASE, { waitUntil: 'networkidle' });
   await wait(400);
   ok('menu renders both mode buttons', (await page.locator('#btn-mode-bot').isVisible()) && (await page.locator('#btn-mode-2p').isVisible()));
+
+  // The full-screen layers have to overshoot the viewport, not match it. On an
+  // iOS standalone PWA the ICB can be shorter than the screen, and then anything
+  // pinned to the viewport (inset: 0, 100lvh, a measured height — all three have
+  // been tried) stops above the real bottom edge and the root canvas COLOUR
+  // paints the rest: a flat band under a gradient, 61pt tall on an iPhone 17 Pro.
+  // Nothing reports the missing strip, so the only durable fix is to bleed past
+  // it — which means "exactly the viewport" is the failure mode to guard against.
+  {
+    const bleed = await page.evaluate(() => {
+      const vh = innerHeight;
+      const fx = document.getElementById('fx').getBoundingClientRect();
+      const bg = getComputedStyle(document.body, '::before');
+      return {
+        fxTop: fx.top, fxBottom: fx.bottom, vh,
+        bgTop: parseFloat(bg.top), bgHeight: parseFloat(bg.height),
+      };
+    });
+    ok('the fx layer bleeds past the top and bottom of the screen',
+      bleed.fxTop < -8 && bleed.fxBottom > bleed.vh + 8);
+    ok('the neon background bleeds past the screen too',
+      bleed.bgTop < -8 && bleed.bgHeight > bleed.vh + 16);
+  }
   // start clean so scoreboard asserts are deterministic
   await page.evaluate(() => localStorage.removeItem('c4.stats.v1'));
   await page.reload({ waitUntil: 'networkidle' });
