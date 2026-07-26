@@ -301,6 +301,46 @@ try {
   ok('the toss announced who goes first', /goes first/.test((await page.locator('#toss-result').textContent()) || ''));
   ok('play resumes with a valid starter', [1, 2].includes(await starterSeat()));
 
+  // --- Particles must not outlive the screen that started them ---
+  // The confetti and ash layers live in #fx, outside the screens, so `display:
+  // none` no longer stops them. Leaving mid-burst used to rain the rest of the
+  // confetti — and a whole delayed second wave — over whatever came next.
+  {
+    await start2p(0);
+    for (const c of [0, 0, 1, 1, 2, 2, 3]) await dropAt(c, 520);
+    await page.locator('#overlay-result.is-open').waitFor({ timeout: 10000 });
+    ok('confetti is running at the moment of the win',
+      (await page.locator('#confetti .confetti-piece').count()) > 0);
+    await page.locator('#overlay-result [data-nav="menu"]').click();
+    await wait(150);
+    ok('confetti does not follow you off the game screen',
+      (await page.locator('#confetti .confetti-piece').count()) === 0);
+    await wait(500); // past the 300ms delayed second wave
+    ok('the delayed second wave is cancelled too',
+      (await page.locator('#confetti .confetti-piece').count()) === 0);
+  }
+
+  // --- The fx layer must not be scrollable ---
+  // `overflow: hidden` makes a box a scroll container with invisible scrollbars,
+  // and #fx is full of buttons: the browser's own scroll-into-view (Chromium runs
+  // it on every click) scrolls it, #fx keeps its own position, and every overlay
+  // inside is silently offset from then on — permanently, with nothing on screen
+  // to explain it. That is what tapping the result card's Main Menu button above
+  // used to do. Layout position vs painted position is the only way to see it.
+  {
+    const drift = await page.evaluate(() => {
+      const fx = document.getElementById('fx');
+      fx.scrollTop = 500; // try to scroll it the way the browser would
+      fx.scrollLeft = 500;
+      const el = document.getElementById('bot-intro');
+      const r = el.getBoundingClientRect();
+      const f = fx.getBoundingClientRect();
+      return { sx: fx.scrollLeft, sy: fx.scrollTop, dx: r.left - f.left - el.offsetLeft, dy: r.top - f.top - el.offsetTop };
+    });
+    ok(`the fx layer cannot be scrolled (offset ${drift.sx},${drift.sy})`, drift.sx === 0 && drift.sy === 0);
+    ok('overlays paint where they are laid out', Math.abs(drift.dx) < 1 && Math.abs(drift.dy) < 1);
+  }
+
   // --- Full-column shake: filling a column then tapping it drops nothing ---
   await start2p(0);
   for (let i = 0; i < 6; i++) await dropAt(0, 500); // alternating fill, no vertical win

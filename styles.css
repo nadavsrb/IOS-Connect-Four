@@ -146,7 +146,16 @@ body::before {
   inset: 0;
   min-height: 100lvh;
   z-index: 50;
-  overflow: hidden;
+  /* `clip`, not `hidden`. `overflow: hidden` makes a box a SCROLL CONTAINER — it
+     just has no visible scrollbars — and this one is full of buttons, so the
+     browser's own scroll-into-view (Chromium does it on every click, whether or
+     not it's needed) would scroll it. Nothing looks wrong at the time: #fx keeps
+     its own position, so the only symptom is that every overlay inside it is
+     silently offset from then on, permanently. Measured 47px across and 116px up
+     after one tap on the result card's Main Menu button. `clip` produces no
+     scroll container at all, so there is nothing to scroll. */
+  overflow: hidden; /* fallback for engines without `clip` */
+  overflow: clip;
   pointer-events: none; /* taps fall through to the app until something opens */
 }
 /* The overlays are clipped to the short viewport exactly like everything else in

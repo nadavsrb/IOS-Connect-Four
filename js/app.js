@@ -340,6 +340,10 @@ const music = (() => {
   function tick() {
     const c = audioCtx();
     if (!c) return;
+    // Backgrounding the app throttles setInterval, so nextTime can fall well
+    // behind the clock. Scheduling that whole backlog would start every missed
+    // note at once — a burst of noise the moment you come back. Skip the gap.
+    if (nextTime < c.currentTime) nextTime = c.currentTime + 0.05;
     while (nextTime < c.currentTime + 0.13) {
       scheduleStep(step, nextTime);
       nextTime += stepDur;
@@ -385,7 +389,10 @@ const music = (() => {
 let audioUnlocked = false;
 function updateMusic() {
   const onMusicScreen = currentScreen === 'screen-menu' || currentScreen === 'screen-setup';
-  if (audioUnlocked && !prefs.muted && onMusicScreen) music.start();
+  // Nothing plays to an audience that isn't there: a backgrounded tab keeps the
+  // scheduler running on a throttled timer, which is both wasteful and the source
+  // of the catch-up burst tick() guards against.
+  if (audioUnlocked && !prefs.muted && onMusicScreen && !document.hidden) music.start();
   else music.stop();
 }
 
@@ -577,6 +584,7 @@ function clearForeignFx(id) {
     clearDevour();
   }
   if (id !== 'screen-puzzle') clearPuzzleLoss();
+  clearParticles(); // confetti/ash from the screen being left must not rain on this one
 }
 
 function showScreen(id, dir = null) {
@@ -890,10 +898,13 @@ function runBotIntro(done) {
   const finish = () => {
     if (gen !== introGen) return;
     timers.forEach(clearTimeout);
-    introGen++; // nothing queued can fire past this point
+    const closed = ++introGen; // nothing queued can fire past this point
     botIntroEl.classList.remove('is-open');
     botIntroEl.onclick = null;
-    setTimeout(done, 240); // let the fade out finish before the toss opens
+    // Guarded like every other staged step: leaving the game inside this gap used
+    // to still run `done`, which opens the toss — over whatever screen you had
+    // navigated to, now that the overlays live outside the screens.
+    setTimeout(() => { if (closed === introGen) done(); }, 240);
   };
 
   at(reduced ? 40 : 640, () => {
@@ -1147,7 +1158,9 @@ function botDropAt(col, act, kind = 'drop') {
   botRobotCol = col;
   positionBotRobot(col);
   const slide = prefersReducedMotion() ? 0 : 340;
+  const gen = moveGen; // restarting the round mid-slide must not fire the claw
   setTimeout(() => {
+    if (gen !== moveGen || !game.active) return; // the servo sting would land on the next round
     if (botRobot) botRobot.classList.add(kind === 'pop' ? 'popping' : 'dropping');
     sound.robot(game.difficulty); // claw servo, synced to the release
     act();
@@ -1683,15 +1696,29 @@ function renderPopAnimated(col) {
 
 // ---------------------------------------------------------------- confetti
 
+// Confetti and ash live in #fx, outside the screens, so `display: none` no longer
+// stops them when you navigate away — their rAF loops and delayed second waves
+// would keep painting over whatever screen came next. One counter cancels both:
+// bumping it makes every in-flight burst bail on its next frame.
+let particleGen = 0;
+
+function clearParticles() {
+  particleGen++;
+  if (confettiLayer) confettiLayer.innerHTML = '';
+  if (puzzleConfettiLayer) puzzleConfettiLayer.innerHTML = '';
+  if (puzzleAshLayer) puzzleAshLayer.innerHTML = '';
+}
+
 function burstConfetti() {
-  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  if (!confettiLayer) return;
+  if (prefersReducedMotion() || !confettiLayer) return;
+  const gen = particleGen;
   spawnConfetti(130); // main burst
-  setTimeout(() => spawnConfetti(70), 300); // a second wave for a fuller celebration
+  setTimeout(() => { if (gen === particleGen) spawnConfetti(70); }, 300); // a second wave for a fuller celebration
 }
 
 function spawnConfetti(COUNT, layer = confettiLayer, colors) {
   if (!layer) return;
+  const gen = particleGen;
 
   const palette = colors || [game.colors[1], game.colors[2], '#ffd23f', '#7cff6b', '#b26bff', '#3dd7ff'];
   const rect = layer.getBoundingClientRect();
@@ -1719,6 +1746,7 @@ function spawnConfetti(COUNT, layer = confettiLayer, colors) {
   const gravity = 0.18;
   const start = performance.now();
   function frame(now) {
+    if (gen !== particleGen) return; // layer was cleared — stop animating detached nodes
     const t = now - start;
     for (const p of pieces) {
       p.vy += gravity;
@@ -1747,6 +1775,7 @@ function spawnConfetti(COUNT, layer = confettiLayer, colors) {
 // and staggered across the sequence so it keeps falling the whole time.
 function spawnAsh(count, layer) {
   if (!layer || prefersReducedMotion()) return;
+  const gen = particleGen;
   const rect = layer.getBoundingClientRect();
   const width = rect.width || 340;
   const flecks = [];
@@ -1777,6 +1806,7 @@ function spawnAsh(count, layer) {
   const start = performance.now();
   const LIFE = 3400;
   function frame(now) {
+    if (gen !== particleGen) return; // layer was cleared — stop animating detached nodes
     const t = now - start;
     for (const f of flecks) {
       const age = t - f.delay;
@@ -1875,6 +1905,10 @@ function applyTheme(theme) {
 // invalidation. An inline style can't half-apply.
 function syncFxFloor() {
   if (!fxEl) return;
+  // Belt for the `overflow: clip` brace in styles.css: on an engine that only
+  // honours `overflow: hidden`, #fx is still a scroll container, and a stray
+  // scroll-into-view there offsets every overlay invisibly. Snap it back.
+  if (fxEl.scrollTop || fxEl.scrollLeft) { fxEl.scrollTop = 0; fxEl.scrollLeft = 0; }
   const open = !!fxEl.querySelector('.is-open, #puzzle-gloom.is-on');
   fxEl.classList.toggle('fx-open', open); // shows the matching floor strip in the layer
   const floor = getComputedStyle(document.documentElement).getPropertyValue('--fx-floor').trim();
@@ -1884,6 +1918,7 @@ function syncFxFloor() {
 
 function watchFxFloor() {
   if (!fxEl) return;
+  fxEl.addEventListener('scroll', syncFxFloor, { passive: true }); // see the note in syncFxFloor
   // Toggling fx-open on #fx is itself inside the observed subtree, but a
   // no-op classList.toggle records no mutation, so this can't feed back.
   new MutationObserver(syncFxFloor).observe(fxEl, {
@@ -2291,6 +2326,7 @@ function seekFromGraph(clientX) {
 function clearReplayHint() {
   replayBoardEl.querySelectorAll('.cell.hint').forEach((c) => c.classList.remove('hint'));
   replayBoardEl.querySelectorAll('.disc.ghost').forEach((g) => g.remove());
+  replayBoardEl.querySelectorAll('.disc.pop-hint').forEach((d) => d.classList.remove('pop-hint'));
 }
 
 // Highlight the engine's best move for whoever is to move at the current paused
@@ -2302,12 +2338,22 @@ function showReplayHint() {
   if (!d || replay.index >= d.moves.length) return; // game over — no move to suggest
   const board = replay.boards[replay.index];
   const mover = replayMoverAt(replay.index);
-  const col = chooseMove(cloneBoard(board), mover, 'insane', { exact: exactOK(d.variant) });
-  if (col == null) return;
-  const row = lowestEmptyRow(board, col);
+  // Pop-Out's best move may be a pop, so ask the variant-aware search — as the
+  // in-game hint already does. The drop-only chooser used here before would
+  // recommend a drop even in a position whose only good move is a pop.
+  const move = d.variant === 'popout'
+    ? choosePopoutMove(cloneBoard(board), mover, 'insane')
+    : toDrop(chooseMove(cloneBoard(board), mover, 'insane', { exact: exactOK(d.variant) }));
+  if (!move || move.col == null) return;
+  for (let r = 0; r < ROWS; r++) cellIn(replayBoardEl, r, move.col).classList.add('hint');
+  if (move.type === 'pop') {
+    const bottom = cellIn(replayBoardEl, ROWS - 1, move.col).querySelector('.disc');
+    if (bottom) bottom.classList.add('pop-hint'); // the disc to pull out, not a landing hole
+    return;
+  }
+  const row = lowestEmptyRow(board, move.col);
   if (row < 0) return;
-  for (let r = 0; r < ROWS; r++) cellIn(replayBoardEl, r, col).classList.add('hint');
-  const ghost = spawnDisc(replayBoardEl, row, col, d.colors[mover]);
+  const ghost = spawnDisc(replayBoardEl, row, move.col, d.colors[mover]);
   ghost.classList.add('ghost');
 }
 
@@ -2395,18 +2441,21 @@ function toggleSound() {
   }
 }
 
+let resetLabelTimer = null;
+
 function resetStats() {
   stats = { 1: 0, 2: 0, draws: 0 };
   saveStats();
   history = emptyHistory();
   saveHistory();
   renderScores();
+  // Restore the chip's own label, not whatever it happened to say: reading it
+  // back meant a second press within the window captured "Cleared ✓" as the
+  // "previous" text and left it stuck there.
   const label = $('#btn-reset-stats .chip-label');
-  const prev = label.textContent;
   label.textContent = 'Cleared ✓';
-  setTimeout(() => {
-    label.textContent = prev;
-  }, 1200);
+  clearTimeout(resetLabelTimer);
+  resetLabelTimer = setTimeout(() => { label.textContent = 'Reset scores'; }, 1200);
   if (currentScreen === 'screen-stats') renderStats(); // refresh if we're looking at it
 }
 
@@ -2701,7 +2750,7 @@ function clearPuzzleLoss() {
     d.style.removeProperty('--tilt');
   });
   puzzleGloomEl?.classList.remove('is-on');
-  if (puzzleAshLayer) puzzleAshLayer.innerHTML = '';
+  clearParticles(); // stops the ash mid-fall as well as emptying the layer
   if (puzzleLostEl) {
     puzzleLostEl.classList.remove('is-open');
     puzzleLostEl.setAttribute('aria-hidden', 'true');
@@ -2738,8 +2787,9 @@ function onPuzzleSolved(winCells) {
   haptic([12, 40, 18]);
   if (!prefersReducedMotion() && puzzleConfettiLayer) {
     const cols = [PUZZLE_COLORS[P1], PUZZLE_COLORS[P2], '#7cff6b', '#b26bff', '#3dd7ff'];
+    const gen = particleGen;
     spawnConfetti(120, puzzleConfettiLayer, cols);
-    setTimeout(() => spawnConfetti(60, puzzleConfettiLayer, cols), 260);
+    setTimeout(() => { if (gen === particleGen) spawnConfetti(60, puzzleConfettiLayer, cols); }, 260);
   }
   setPuzzleStatus('Solved! 🎉', 'good');
   markPuzzleSolved(PUZZLES[puzzle.i].id);
@@ -2993,7 +3043,11 @@ function wire() {
   $('#rp-prev').addEventListener('click', () => { stopReplayPlay(); replayStep(-1); });
   rpPlayBtn.addEventListener('click', toggleReplayPlay);
   $('#rp-next').addEventListener('click', () => { stopReplayPlay(); replayStep(1); });
-  $('#rp-end').addEventListener('click', () => { stopReplayPlay(); replayStepTo(replay.data.moves.length, false); });
+  $('#rp-end').addEventListener('click', () => {
+    if (!replay.data) return; // the screen is only reachable via enterReplay, but don't throw if it isn't
+    stopReplayPlay();
+    replayStepTo(replay.data.moves.length, false);
+  });
   if (rpHintBtn) rpHintBtn.addEventListener('click', showReplayHint);
   updateReplayLastChip();
 
@@ -3115,6 +3169,10 @@ function wire() {
   // First user gesture unlocks Web Audio; start the soundtrack if we're on a
   // music screen and not muted.
   window.addEventListener('pointerdown', () => { sound.unlock(); audioUnlocked = true; updateMusic(); }, { once: true });
+
+  // Backgrounding the app silences the soundtrack; coming back resumes it if the
+  // screen still calls for it.
+  document.addEventListener('visibilitychange', updateMusic);
 
   // A click sound on every button/chip/segment/swatch press (respects mute).
   document.addEventListener('click', (e) => {

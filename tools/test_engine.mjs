@@ -19,7 +19,7 @@ import {
 } from '../js/engine.js';
 import { chooseMove, choosePopoutMove, popoutMoves, applyPopoutMove, winChance, __test } from '../js/bot.js';
 import { solveBoard } from '../js/solver.js';
-import { emptyHistory, recordGame, summarize, winRate } from '../js/stats.js';
+import { emptyHistory, recordGame, summarize, winRate, MAX_HISTORY } from '../js/stats.js';
 
 let passed = 0;
 let failed = 0;
@@ -534,6 +534,16 @@ console.log('Stats: history aggregation');
   const s = summarize(h);
   ok('current streak counts trailing vs-bot wins (2)', s.streakCurrent === 2);
   ok('empty history summarizes to zero games', summarize(emptyHistory()).total === 0);
+}
+{
+  // The history is written to localStorage after every round and is the only
+  // structure in the app that grows without bound, so it has to be capped — an
+  // over-quota write fails silently and progress simply stops persisting.
+  let h = emptyHistory();
+  for (let i = 0; i < MAX_HISTORY + 40; i++) h = recordGame(h, { mode: 'bot', difficulty: 'easy', winner: 1, at: i });
+  ok(`history is capped at ${MAX_HISTORY} games`, h.games.length === MAX_HISTORY);
+  ok('the cap drops the OLDEST games, not the newest', h.games[h.games.length - 1].at === MAX_HISTORY + 39);
+  ok('a capped history still summarizes', summarize(h).total === MAX_HISTORY);
 }
 
 // --- Exact bitboard solver ----------------------------------------------------

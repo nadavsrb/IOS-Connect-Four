@@ -9,6 +9,14 @@ export function emptyHistory() {
   return { games: [] };
 }
 
+// How many finished games to keep. This array is the only thing in the app that
+// grows without bound, and it is written to localStorage after every round — left
+// alone it would eventually hit the quota, at which point saving fails silently
+// and progress stops persisting at all. Trimming means the totals and best streak
+// describe the last MAX_HISTORY games rather than all time, which is a far better
+// trade than a save that quietly stops working.
+export const MAX_HISTORY = 500;
+
 // Append one finished round. `record` = { mode:'bot'|'2p', difficulty?, winner:1|2|'draw' }.
 // In bot mode the human is Player 1 and the bot is Player 2.
 export function recordGame(history, record) {
@@ -19,7 +27,7 @@ export function recordGame(history, record) {
     winner: record.winner, // 1 | 2 | 'draw'
     at: record.at || Date.now(),
   });
-  return { games };
+  return { games: games.length > MAX_HISTORY ? games.slice(-MAX_HISTORY) : games };
 }
 
 // Aggregate a history into the numbers the Stats screen shows.
