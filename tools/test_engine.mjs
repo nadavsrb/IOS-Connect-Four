@@ -217,11 +217,18 @@ console.log('Bot: full self-play games hold every invariant');
   ok('every reported win is a genuine four', winsAreReal);
   ok('every game reaches a terminal state', alwaysTerminated);
   ok('medium and up always block a forced threat', blockedForced);
-  // Strength ladder: the stronger levels must beat a random opponent more often
-  // than easy does. (12 games each; easy is deliberately sloppy.)
-  ok('the difficulty ladder is monotonic vs random',
-    wins.insane >= wins.easy && wins.hard >= wins.easy && wins.medium >= wins.easy);
-  ok('hard and insane beat a random opponent nearly always', wins.hard >= 10 && wins.insane >= 10);
+  // Strength floors vs a random opponent, per level. This used to assert a strict
+  // ordering (insane >= hard >= easy) over 12 games each, which was measuring
+  // noise rather than strength: even Easy takes an immediate win and blocks an
+  // immediate loss, so it already beats random ~11 times out of 12 and there is
+  // no headroom above it for the ordering to show up in. One unlucky draw or
+  // loss at a higher level then inverted the comparison, so the assertion failed
+  // roughly one run in five with nothing wrong. Absolute floors are what the
+  // ladder actually promises, and a sample this small can support them.
+  ok(`easy is competent vs random (${wins.easy}/12)`, wins.easy >= 7);
+  ok(`medium is strong vs random (${wins.medium}/12)`, wins.medium >= 9);
+  ok(`hard and insane beat a random opponent nearly always (${wins.hard}/12, ${wins.insane}/12)`,
+    wins.hard >= 10 && wins.insane >= 10);
 }
 
 console.log('Bot: Pop-Out variant search');

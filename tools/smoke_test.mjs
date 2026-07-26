@@ -2,6 +2,7 @@
 // Usage: node tools/smoke_test.mjs <baseURL> <screenshotDir>
 import { chromium, devices } from 'playwright-core';
 import { PUZZLES } from '../js/puzzles.js';
+import { decodePng, largestVerticalStep } from './png.mjs';
 
 const BASE = process.argv[2] || 'http://127.0.0.1:8080';
 const SHOTS = process.argv[3] || '.';
@@ -149,6 +150,43 @@ try {
   ok('theme persists across reload', (await themeOf()) === 'neon');
   await page.locator('#btn-theme').click(); // back to Classic (the default) for the remaining shots
   ok('theme cycles back to classic', (await themeOf()) === 'classic');
+
+  // --- Background continuity ---
+  // A flat band at the bottom of the screen has come back three times now. The
+  // cause is always the same: the root box on an iOS standalone PWA can be
+  // shorter than the physical screen, and whatever paints the leftover strip has
+  // to be the SAME gradient rather than a colour picked to resemble it — a flat
+  // value can't match a gradient lit by bottom-anchored glows, so it reads as a
+  // patch. Simulate the short root box, strip everything except the canvas
+  // background, and assert the column has no step in it. This is the only check
+  // that actually catches the bug, so it looks at pixels.
+  {
+    ok('no stand-in background colour on the canvas',
+      (await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor)) === 'rgba(0, 0, 0, 0)');
+    const vh = page.viewportSize().height;
+    for (const theme of ['classic', 'neon', 'minimal']) {
+      await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
+      // 60% of the viewport is a far harsher shortfall than any real device's.
+      const tag = await page.addStyleTag({
+        content: `html{height:${Math.round(vh * 0.6)}px !important}
+                  body::before{display:none !important}
+                  #app{visibility:hidden !important}`,
+      });
+      await wait(180);
+      const shot = await page.screenshot({ scale: 'css' });
+      await tag.evaluate((el) => el.remove());
+      const png = decodePng(shot);
+      const { step, y } = largestVerticalStep(png, Math.floor(png.width / 2));
+      const bottom = png.at(Math.floor(png.width / 2), png.height - 1);
+      const isDefaultSurface = // Chromium's own canvas colour, dark or light
+        (bottom[0] === 18 && bottom[1] === 18 && bottom[2] === 18) ||
+        (bottom[0] === 255 && bottom[1] === 255 && bottom[2] === 255);
+      ok(`${theme}: background is one gradient with no seam (worst step ${step}/255 at y=${y})`, step <= 6);
+      ok(`${theme}: the gradient reaches the bottom of the canvas`, !isDefaultSurface);
+    }
+    await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'classic'));
+    await wait(120);
+  }
 
   // --- Two-player: play a scripted P1 horizontal win (timer off) ---
   await page.locator('#btn-mode-2p').click();
