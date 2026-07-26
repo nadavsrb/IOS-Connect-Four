@@ -423,6 +423,34 @@ try {
   ok('service-worker.js served', (await page.evaluate(async () => (await fetch('service-worker.js')).status)) === 200);
   ok('manifest.webmanifest served', (await page.evaluate(async () => (await fetch('manifest.webmanifest')).status)) === 200);
 
+  // --- The icon has to match the default theme ---
+  // It's generated offline by tools/make_icons.py, so nothing would otherwise
+  // notice if the palette drifted from Classic — which is exactly how it ended up
+  // shipping the old neon purple/pink long after Classic became the default.
+  // Sample the rendered PNG rather than trusting the generator's constants.
+  {
+    const png = decodePng(Buffer.from(
+      await page.evaluate(async () => {
+        const b = await (await fetch('icons/icon-512.png')).arrayBuffer();
+        return [...new Uint8Array(b)];
+      }),
+    ));
+    const at = (fx, fy) => png.at(Math.round(png.width * fx), Math.round(png.height * fy));
+    const near = (c, t, tol) => Math.max(...[0, 1, 2].map((i) => Math.abs(c[i] - t[i]))) <= tol;
+    const blueish = (c) => c[2] > c[0] + 30 && c[2] > c[1] + 20;
+    ok('icon is 512x512', png.width === 512 && png.height === 512);
+    ok('the cabinet is Classic blue, not the old neon purple', blueish(at(0.5, 0.25)));
+    ok('the page backdrop is the Classic navy', blueish(at(0.04, 0.04)));
+    // Corner token on the winning diagonal: red. Its opposite corner: yellow.
+    const red = at(0.26, 0.26);
+    const yellow = at(0.74, 0.26);
+    ok(`the P1 token is red (${red})`, red[0] > 180 && red[1] < 130 && red[2] < 110);
+    ok(`the P2 token is yellow (${yellow})`, yellow[0] > 190 && yellow[1] > 150 && yellow[2] < 130);
+    ok('the sockets are drilled dark', at(0.5, 0.26)[0] < 60 && at(0.5, 0.26)[2] < 90);
+    ok('nothing is pure black or pure white anywhere it shouldn\'t be',
+      !near(at(0.5, 0.5), [0, 0, 0], 4) && !near(at(0.5, 0.5), [255, 255, 255], 4));
+  }
+
   // --- Best-of-3 match series (first mover wins each round with the same pattern) ---
   async function firstMoverWins() {
     for (const col of [0, 0, 1, 1, 2, 2, 3]) await dropAt(col, 520);
