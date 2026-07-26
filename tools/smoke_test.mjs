@@ -36,12 +36,40 @@ const discCount = () => page.locator('#board .disc').count();
 // several are transformed while they play — the gloom scales in, the screen kick
 // shifts the whole fx layer by up to 7px. Covering *more* than the screen is the
 // intent; only falling short is a bug.
+// The strip below the viewport on an iOS standalone PWA is painted by the root
+// background-colour in EVERY state, overlays included — nothing inside the page
+// reaches it. So whatever is on top has to end on that same colour at its bottom
+// edge, or the phone shows a band under it (which is how the opponent reveal
+// looked). Compares the rendered bottom row against the root colour.
+const bottomEdgeVsRoot = async () => {
+  const png = decodePng(await page.screenshot({ scale: 'css' }));
+  const row = png.at(Math.floor(png.width / 2), png.height - 1);
+  const root = await rootColourBytes();
+  return { row, root, delta: Math.max(...[0, 1, 2].map((i) => Math.abs(row[i] - root[i]))) };
+};
+// Read the root colour as sRGB bytes by painting it. Parsing the computed value
+// as text doesn't work: color-mix() serialises as `color(srgb 0.019 0.033 0.079)`,
+// whose floats a naive number match mangles into nonsense.
+const rootColourBytes = () => page.evaluate(() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 1;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = getComputedStyle(document.documentElement).backgroundColor;
+  ctx.fillRect(0, 0, 1, 1);
+  return Array.from(ctx.getImageData(0, 0, 1, 1).data).slice(0, 3);
+});
+
 const coversViewport = async (sel) => {
   const vp = page.viewportSize();
   return page.locator(sel).evaluate((el, v) => {
+    // Subtract whatever the fx layer is currently doing before comparing: the
+    // screen kick transforms it while the maw plays, and a shaken box is not a
+    // coverage failure. #fx itself is the reference, so it measures as 0,0.
+    const fr = document.getElementById('fx').getBoundingClientRect();
     const r = el.getBoundingClientRect();
-    const T = 8; // the screen kick can offset the painted box by this much
-    return r.left <= T && r.top <= T && r.right >= v.width - T && r.bottom >= v.height - T;
+    const T = 1;
+    return r.left - fr.left <= T && r.top - fr.top <= T &&
+      r.right - fr.left >= v.width - T && r.bottom - fr.top >= v.height - T;
   }, vp);
 };
 const dropAt = async (col, settle = 560) => {
@@ -109,28 +137,6 @@ try {
   await wait(400);
   ok('menu renders both mode buttons', (await page.locator('#btn-mode-bot').isVisible()) && (await page.locator('#btn-mode-2p').isVisible()));
 
-  // The full-screen layers have to overshoot the viewport, not match it. On an
-  // iOS standalone PWA the ICB can be shorter than the screen, and then anything
-  // pinned to the viewport (inset: 0, 100lvh, a measured height — all three have
-  // been tried) stops above the real bottom edge and the root canvas COLOUR
-  // paints the rest: a flat band under a gradient, 61pt tall on an iPhone 17 Pro.
-  // Nothing reports the missing strip, so the only durable fix is to bleed past
-  // it — which means "exactly the viewport" is the failure mode to guard against.
-  {
-    const bleed = await page.evaluate(() => {
-      const vh = innerHeight;
-      const fx = document.getElementById('fx').getBoundingClientRect();
-      const bg = getComputedStyle(document.body, '::before');
-      return {
-        fxTop: fx.top, fxBottom: fx.bottom, vh,
-        bgTop: parseFloat(bg.top), bgHeight: parseFloat(bg.height),
-      };
-    });
-    ok('the fx layer bleeds past the top and bottom of the screen',
-      bleed.fxTop < -8 && bleed.fxBottom > bleed.vh + 8);
-    ok('the neon background bleeds past the screen too',
-      bleed.bgTop < -8 && bleed.bgHeight > bleed.vh + 16);
-  }
   // start clean so scoreboard asserts are deterministic
   await page.evaluate(() => localStorage.removeItem('c4.stats.v1'));
   await page.reload({ waitUntil: 'networkidle' });
@@ -152,40 +158,51 @@ try {
   ok('theme cycles back to classic', (await themeOf()) === 'classic');
 
   // --- Background continuity ---
-  // A flat band at the bottom of the screen has come back three times now. The
-  // cause is always the same: the root box on an iOS standalone PWA can be
-  // shorter than the physical screen, and whatever paints the leftover strip has
-  // to be the SAME gradient rather than a colour picked to resemble it — a flat
-  // value can't match a gradient lit by bottom-anchored glows, so it reads as a
-  // patch. Simulate the short root box, strip everything except the canvas
-  // background, and assert the column has no step in it. This is the only check
-  // that actually catches the bug, so it looks at pixels.
+  // A band across the bottom of the screen has come back three times now. On an
+  // iOS standalone PWA the viewport can be shorter than the physical screen, and
+  // everything inside the page is clipped to it — fixed layers, viewport units,
+  // and the root's background IMAGE. The root's background COLOUR is the only
+  // thing that paints the leftover strip, so the gradient has to genuinely END on
+  // that colour rather than have it approximated underneath: the stack fades to a
+  // flat --bg-floor over its last stretch, and the root is painted with exactly
+  // that value.
+  // Two things to prove, per theme, and only pixels can prove them.
   {
-    ok('no stand-in background colour on the canvas',
-      (await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor)) === 'rgba(0, 0, 0, 0)');
+    const cx = () => Math.floor(page.viewportSize().width / 2);
+    const near = (a, b, t) => Math.abs(a[0] - b[0]) <= t && Math.abs(a[1] - b[1]) <= t && Math.abs(a[2] - b[2]) <= t;
+    const rootColour = rootColourBytes;
     const vh = page.viewportSize().height;
+
     for (const theme of ['classic', 'neon', 'minimal']) {
       await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
-      // 60% of the viewport is a far harsher shortfall than any real device's.
-      const tag = await page.addStyleTag({
+      await wait(500); // the root colour transitions over 0.3s; sampling inside that reads an interpolated value
+      const floor = await rootColour();
+
+      // 1. The visible background really does end on the root colour. This is the
+      //    seam the phone shows: the animated layer's last row meets the strip.
+      const hide = await page.addStyleTag({ content: '#app{visibility:hidden !important}' });
+      await wait(120);
+      const live = decodePng(await page.screenshot({ scale: 'css' }));
+      await hide.evaluate((el) => el.remove());
+      const lastRow = live.at(cx(), live.height - 1);
+      ok(`${theme}: the background ends on the root colour (${lastRow} vs ${floor})`, near(lastRow, floor, 3));
+
+      // 2. With the root box shortened the way iOS shortens it, the strip the
+      //    image can't reach is a seamless continuation rather than a patch.
+      const shorten = await page.addStyleTag({
         content: `html{height:${Math.round(vh * 0.6)}px !important}
                   body::before{display:none !important}
                   #app{visibility:hidden !important}`,
       });
       await wait(180);
-      const shot = await page.screenshot({ scale: 'css' });
-      await tag.evaluate((el) => el.remove());
-      const png = decodePng(shot);
-      const { step, y } = largestVerticalStep(png, Math.floor(png.width / 2));
-      const bottom = png.at(Math.floor(png.width / 2), png.height - 1);
-      const isDefaultSurface = // Chromium's own canvas colour, dark or light
-        (bottom[0] === 18 && bottom[1] === 18 && bottom[2] === 18) ||
-        (bottom[0] === 255 && bottom[1] === 255 && bottom[2] === 255);
-      ok(`${theme}: background is one gradient with no seam (worst step ${step}/255 at y=${y})`, step <= 6);
-      ok(`${theme}: the gradient reaches the bottom of the canvas`, !isDefaultSurface);
+      const png = decodePng(await page.screenshot({ scale: 'css' }));
+      await shorten.evaluate((el) => el.remove());
+      const { step, y } = largestVerticalStep(png, cx());
+      ok(`${theme}: no seam where the image stops (worst step ${step}/255 at y=${y})`, step <= 3);
+      ok(`${theme}: the strip below it is the floor colour`, near(png.at(cx(), png.height - 1), floor, 2));
     }
     await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'classic'));
-    await wait(120);
+    await wait(150);
   }
 
   // --- Two-player: play a scripted P1 horizontal win (timer off) ---
@@ -271,6 +288,11 @@ try {
   ok('vs bot opens with the opponent reveal', true);
   ok('the fx layer is the whole viewport', await coversViewport('#fx'));
   ok('the opponent reveal fills the screen', await coversViewport('#bot-intro'));
+  {
+    await wait(400); // the floor and the root colour both fade in over 0.3s
+    const e = await bottomEdgeVsRoot();
+    ok(`the reveal ends on the strip colour below it (Δ${e.delta}: ${e.row} vs ${e.root})`, e.delta <= 3);
+  }
   ok('the reveal is skinned for the chosen level',
     ((await page.locator('#bot-intro').getAttribute('class')) || '').includes('diff-hard'));
   ok('the reveal names the level', /HARD/.test((await page.locator('#bi-level').textContent()) || ''));
@@ -549,6 +571,10 @@ try {
     ok('the headline names the defeat, not the winner',
       /Nibbled|Swallowed|Crunched|DEVOURED/.test((await page.locator('#result-title').textContent()) || ''));
     ok('the result overlay fills the screen', await coversViewport('#overlay-result'));
+    {
+      const e = await bottomEdgeVsRoot();
+      ok(`the loss card ends on the strip colour below it (Δ${e.delta}: ${e.row} vs ${e.root})`, e.delta <= 6);
+    }
     // The bite kicks the fx layer with a transform; it has to come back off, or
     // every overlay after it sits a few pixels out of place for good.
     ok('the screen kick leaves no residual transform on the fx layer',

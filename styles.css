@@ -4,10 +4,25 @@
 
 :root {
   color-scheme: dark; /* browser overscroll/backdrop surfaces render dark, not white */
+  /* The colour the background settles to over its last few percent, and the same
+     colour at zero alpha for the fade into it. See the `html` rule: this is what
+     makes the strip below the viewport an exact continuation instead of an
+     approximation, so it has to be a real value the gradient itself reaches. */
+  --bg-floor: #241d4e;
+  --bg-floor-0: rgba(36, 29, 78, 0);
+  /* Same idea for the full-screen overlays — see .fx::after. Theme-independent,
+     because the overlays are dark scrims in every theme. */
+  --fx-floor: #04030a;
+  --fx-floor-0: rgba(4, 3, 10, 0);
+
   /* The themed background stack, painted by BOTH the html canvas and the fixed
      body::before layer so a sliver of canvas can never read as a different
-     colour. Per-theme overrides redefine this, not body::before's background. */
+     colour. Per-theme overrides redefine this, not body::before's background.
+     The first (topmost) layer is the floor: the stack fades into a flat
+     --bg-floor over its bottom 18%, which is what lets one colour continue it
+     exactly. Everything below 94% is that colour and nothing else. */
   --bg-layers:
+    linear-gradient(to bottom, var(--bg-floor-0) 76%, var(--bg-floor) 94%),
     radial-gradient(90% 55% at 12% 0%, rgba(255, 61, 127, 0.42), transparent 64%),
     radial-gradient(90% 55% at 90% 4%, rgba(61, 215, 255, 0.34), transparent 64%),
     radial-gradient(120% 62% at 50% 100%, rgba(123, 92, 255, 0.46), transparent 70%),
@@ -40,19 +55,6 @@
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
 
-  /* How far every full-screen layer overshoots the viewport, top and bottom.
-     On an iOS standalone PWA the initial containing block can be *shorter* than
-     the physical screen, so `position: fixed; inset: 0` and every viewport unit
-     (100lvh included) stop above the real bottom edge. Nothing reports the
-     missing strip, so there is no height to measure and no measurement that
-     could be right; the layers bleed past the edges instead. They all clip their
-     own overflow, so overshooting is free, and unlike a measured height it can
-     never come up short.
-     This is why the app has no fallback background colour anywhere: the real
-     gradient reaches every pixel, so nothing has to stand in for it. A flat
-     colour under a gradient always reads as a patch pretending to be the
-     background; a gradient stretched 12% taller reads as nothing at all. */
-  --bleed: max(96px, 12vh);
 }
 
 * { box-sizing: border-box; }
@@ -68,53 +70,56 @@ html, body {
   overscroll-behavior: none;
   touch-action: manipulation;
 }
-/* The canvas. Deliberately NO background-color: there is one background in this
-   app — the gradient — and it is extended past every edge instead of being
-   backed by a flat colour chosen to resemble it. A stand-in colour can never
-   actually match: the gradient's bottom edge is lit by bottom-anchored radial
-   glows, so it varies across the width (Classic runs #0c2048 at the edges to
-   #12316c at the centre), and any single value reads as a flat patch pretending
-   to be the background — which is exactly how the band at the bottom of the
-   screen looked.
-   The root's background is propagated to the whole canvas but *positioned*
-   against the root box, which on an iOS standalone PWA can be shorter than the
-   screen. Sizing the image --bleed taller and offsetting it --bleed upward makes
-   the real gradient reach the strip the root box misses, so there is nothing
-   left to approximate. `no-repeat` keeps it from tiling.
+/* THE CANVAS — and the one place the bottom strip of an iOS standalone PWA can
+   be painted from.
+   On that platform the initial containing block can be shorter than the physical
+   screen (measured 62pt short on an iPhone 17 Pro). Everything inside the page is
+   clipped to it: `position: fixed; inset: 0`, every viewport unit, and the root's
+   background IMAGE — all three were tried, including bleeding the fixed layers
+   105px past the edge, and none of them reach. The root's background COLOUR does,
+   because the browser propagates it to the whole window.
+   So a flat colour down there is not a choice, it is the only mechanism. What IS
+   a choice is whether that colour is a guess. Approximating a gradient with one
+   value can't work — a bottom-lit gradient varies across the width, so any single
+   value is wrong somewhere and reads as a patch. Instead the gradient stack ends
+   in a genuinely flat band (--bg-floor, see --bg-layers): below 94% of its height
+   it is that exact colour, uniformly, so continuing it with the same value is
+   seamless by construction rather than by resemblance.
+   The image therefore stays pinned to the root box — no bleed, no offset — so its
+   last row is the floor and the colour picks up precisely where it stops.
    If <body> had an opaque background it would paint over the fixed z-index:-2
    neon layer below it, so body stays transparent. */
 html {
+  background-color: var(--bg-floor);
   background-image: var(--bg-layers);
   background-repeat: no-repeat;
-  background-position: 50% calc(-1 * var(--bleed));
-  /* `100%` here is the ROOT BOX, which is the very thing that can be shorter
-     than the screen — sizing against it alone would leave the image running out
-     partway down the strip it is supposed to cover. Take whichever of the root
-     box and the viewport is taller, then add the bleed to both ends. */
-  background-size: 100% calc(max(100%, 100lvh) + 2 * var(--bleed));
+  background-position: 0 0;
+  background-size: 100% 100%;
+  transition: background-color 0.3s ease; /* follows the overlay floors below */
 }
 body { background: transparent; }
 
-/* Animated neon background. Overshoots the viewport by --bleed top and bottom
-   rather than being pinned to it: `inset: 0`, a JS-measured pixel height
-   (--app-vh) and `100lvh` were all tried here and all three came up ~61pt short
-   on an iOS standalone PWA, leaving the root canvas colour showing as a flat
-   band over the home indicator. See --bleed. The gradient stretches with the
-   taller box, which is why this is safe — a gradient 12% taller than intended
-   is invisible, whereas any hard edge against a flat colour is not.
-   The drift is scale-only (≥ 1.02) so it can never uncover an edge either. */
+/* Animated neon background. Pinned to the viewport, NOT bled past it: bleeding
+   was tried and it doesn't help (see the `html` rule — the platform clips fixed
+   layers to the short viewport anyway), and it actively hurts here, because a
+   box taller than the viewport puts the *visible* bottom row somewhere in the
+   middle of the gradient instead of on its flat floor. Ending exactly on the
+   floor is what makes the root colour continue this seamlessly.
+   No filter for the same reason: it would shift the rendered floor away from the
+   --bg-floor value the root is painted with. Saturation lives in the stops now.
+   The drift is scale-only (≥ 1.02), so the bottom row samples ≥ 96% of the
+   gradient — still inside the flat floor, at either end of the animation. */
 body::before {
   content: "";
   position: fixed;
-  inset: calc(-1 * var(--bleed)) 0;
-  min-height: calc(100lvh + 2 * var(--bleed));
+  inset: 0;
+  min-height: 100lvh;
   z-index: -2;
   /* Neon glows anchored at BOTH the top and bottom (plus a big central purple)
      so colour fills the whole height — no black band on tall screens. The base
      linear is a deep indigo, not near-black. Shared with the html canvas via
      --bg-layers so the two can never disagree. */
   background-image: var(--bg-layers);
-  filter: saturate(1.1);
   transform-origin: center;
   animation: bgdrift 18s ease-in-out infinite alternate;
 }
@@ -136,24 +141,50 @@ body::before {
    Being outside #app also keeps these steady while .quake transforms it. */
 .fx {
   position: fixed;
-  inset: calc(-1 * var(--bleed)) 0; /* overshoot: see --bleed */
-  min-height: calc(100lvh + 2 * var(--bleed));
+  inset: 0;
+  min-height: 100lvh;
   z-index: 50;
   overflow: hidden;
   pointer-events: none; /* taps fall through to the app until something opens */
 }
+/* The overlays are clipped to the short viewport exactly like everything else in
+   the page, so the strip below them is painted by the root background-color too
+   (see the `html` rule). Rather than try to name each overlay's bottom colour —
+   which is impossible, since they are semi-transparent scrims whose rendered
+   value depends on the difficulty skin AND the theme showing through — the fx
+   layer gets its own floor, above everything, that every overlay ends on. Same
+   trick as the page background, and exact for the same reason: one value, really
+   reached, then continued.
+   The fade is gentle and only the last row is fully opaque, so a card that
+   reaches down this far picks up a slight shading rather than a hard edge. */
+.fx::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 9%;
+  z-index: 99; /* above every overlay in the layer, including the result card */
+  pointer-events: none;
+  background: linear-gradient(to bottom, var(--fx-floor-0), var(--fx-floor));
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.fx:has(> .is-open)::after,
+.fx:has(> #puzzle-gloom.is-on)::after { opacity: 1; }
+
+:root:has(.fx > .is-open),
+:root:has(.fx > #puzzle-gloom.is-on) { background-color: var(--fx-floor); }
 /* Padding for the cards inside, so nothing lands under the notch or the home
-   indicator now that these layers reach the physical edges. --bleed is added
-   back so the clearance is measured from the real screen edge and not from the
-   overshoot, which sits off-screen. */
+   indicator now that these layers reach the physical edges. */
 .fx > .overlay,
 .fx > .bot-intro,
 .fx > .toss,
 .fx > .loss-screen {
   padding:
-    calc(var(--bleed) + var(--safe-top) + 22px)
+    calc(var(--safe-top) + 22px)
     calc(var(--safe-right) + 22px)
-    calc(var(--bleed) + var(--safe-bottom) + 22px)
+    calc(var(--safe-bottom) + 22px)
     calc(var(--safe-left) + 22px);
 }
 
@@ -2196,8 +2227,12 @@ body::before {
 /* Classic: deep-blue board, subdued glow */
 :root[data-theme="classic"] {
   --accent: #2b6fe6;
+  /* The lit blue the bottom glow settles to — see --bg-floor in :root. */
+  --bg-floor: #16305f;
+  --bg-floor-0: rgba(22, 48, 95, 0);
   /* blue glow top and bottom so the whole height stays deep blue, never black */
   --bg-layers:
+    linear-gradient(to bottom, var(--bg-floor-0) 76%, var(--bg-floor) 94%),
     radial-gradient(85% 55% at 50% 0%, rgba(60, 120, 230, 0.30), transparent 62%),
     radial-gradient(110% 60% at 50% 100%, rgba(43, 111, 230, 0.30), transparent 70%),
     linear-gradient(160deg, #13244d, #0b1730);
@@ -2240,7 +2275,12 @@ body::before {
 /* Minimal: light, flat, soft */
 :root[data-theme="minimal"] {
   color-scheme: light; /* light theme → light browser surfaces */
-  --bg-layers: linear-gradient(160deg, #f4f6fb, #e7ecf6);
+  /* Minimal has no bottom glow, so its floor is just where the base linear ends. */
+  --bg-floor: #e7ecf6;
+  --bg-floor-0: rgba(231, 236, 246, 0);
+  --bg-layers:
+    linear-gradient(to bottom, var(--bg-floor-0) 76%, var(--bg-floor) 94%),
+    linear-gradient(160deg, #f4f6fb, #e7ecf6);
   --bg-0: #eef1f7;
   --bg-1: #f7f9fc;
   --text: #1b2038;
