@@ -72,9 +72,21 @@ const coversViewport = async (sel) => {
       r.right - fr.left >= v.width - T && r.bottom - fr.top >= v.height - T;
   }, vp);
 };
+// The board is locked while a drop animates, so a click that arrives early is
+// silently ignored — and a scripted game then desyncs and never reaches the win
+// the caller is waiting for, which surfaced as an occasional 10s timeout on the
+// result overlay several assertions further down. Confirm the disc landed and
+// retry once if it didn't. (Polling for the disc instead of waiting doesn't work:
+// it is spawned when the drop STARTS, so it appears while the board is still
+// locked.) A retry on a full column is harmless — nothing lands either time.
 const dropAt = async (col, settle = 560) => {
+  const before = await discCount();
   await page.locator(`#board .cell[data-col="${col}"]`).first().click();
   await wait(settle);
+  if ((await discCount()) === before) {
+    await page.locator(`#board .cell[data-col="${col}"]`).first().click();
+    await wait(settle);
+  }
 };
 async function goToMenu() {
   // if the result overlay is open, its Main Menu button is the clickable one
@@ -168,6 +180,24 @@ try {
   // that value.
   // Two things to prove, per theme, and only pixels can prove them.
   {
+    // First, the shell has to be sized to the LARGE viewport. iOS only hands a
+    // page the full screen once the document is tall enough to scroll — that is
+    // why a detour through the long puzzle list used to be what made everything
+    // fill the screen. Sized to the small viewport, the bars never collapse.
+    ok('the shell is sized to the large viewport, not the current one',
+      await page.evaluate(() => {
+        const app = getComputedStyle(document.getElementById('app')).minHeight;
+        const probe = document.createElement('div');
+        probe.style.cssText = 'position:absolute;visibility:hidden;height:100lvh';
+        document.body.appendChild(probe);
+        const lvh = probe.offsetHeight;
+        probe.remove();
+        return Math.abs(parseFloat(app) - lvh) <= 1;
+      }));
+    // …and once the viewport IS the large one there must be nothing left to
+    // scroll, or the shell would have bought the expansion with permanent jitter.
+    ok('the shell adds no scroll of its own',
+      await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1));
     const cx = () => Math.floor(page.viewportSize().width / 2);
     const near = (a, b, t) => Math.abs(a[0] - b[0]) <= t && Math.abs(a[1] - b[1]) <= t && Math.abs(a[2] - b[2]) <= t;
     const rootColour = rootColourBytes;
@@ -190,9 +220,12 @@ try {
       // 2. With the root box shortened the way iOS shortens it, the strip the
       //    image can't reach is a seamless continuation rather than a patch.
       const shorten = await page.addStyleTag({
-        content: `html{height:${Math.round(vh * 0.6)}px !important}
+        // min-height has to be cleared too, or the shell's `min-height: 100lvh`
+        // keeps the root box full-height and this stops simulating anything.
+        content: `html{height:${Math.round(vh * 0.6)}px !important; min-height:0 !important}
+                  body{min-height:0 !important}
                   body::before{display:none !important}
-                  #app{visibility:hidden !important}`,
+                  #app{display:none !important}`,
       });
       await wait(180);
       const png = decodePng(await page.screenshot({ scale: 'css' }));
@@ -292,6 +325,11 @@ try {
     await wait(400); // the floor and the root colour both fade in over 0.3s
     const e = await bottomEdgeVsRoot();
     ok(`the reveal ends on the strip colour below it (Δ${e.delta}: ${e.row} vs ${e.root})`, e.delta <= 3);
+    // The overlay floor is applied as an inline style by syncFxFloor, not by a
+    // :has() rule — that's the whole point, so check the mechanism directly.
+    ok('the strip colour is driven from JS while an overlay is open',
+      await page.evaluate(() => document.documentElement.style.backgroundColor !== '') &&
+      (await page.locator('#fx.fx-open').count()) === 1);
   }
   ok('the reveal is skinned for the chosen level',
     ((await page.locator('#bot-intro').getAttribute('class')) || '').includes('diff-hard'));
@@ -304,6 +342,10 @@ try {
   await page.locator('#bot-intro').click({ timeout: 4000 });
   await wait(500);
   ok('tapping the reveal skips it', (await page.locator('#bot-intro.is-open').count()) === 0);
+  // …and the strip goes back to the page background rather than staying dark.
+  ok('the strip colour is handed back when the overlay closes',
+    (await page.evaluate(() => document.documentElement.style.backgroundColor)) === '' ||
+    (await page.locator('#toss.is-open').count()) === 1); // unless the toss took over
   await waitForOpening();
   await wait(300);
   await waitForHumanTurn(); // the toss may have given the bot the opening move

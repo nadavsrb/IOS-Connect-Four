@@ -1857,6 +1857,43 @@ function applyTheme(theme) {
   if (themeChip) themeChip.querySelector('.chip-label').textContent = THEME_LABEL[t];
 }
 
+// ---------------------------------------------------------------- bottom strip
+
+// iOS can leave a strip of screen outside the page — Safari's collapsed toolbar
+// area, or a short containing block in standalone. Nothing inside the page
+// reaches it: fixed layers, viewport units and the root's background image are
+// all clipped to the viewport (bleeding them past it was tried and doesn't
+// help). The root's background COLOUR is the only thing that paints there, so it
+// has to track whatever is currently on top — the page background normally, the
+// fx floor while a full-screen overlay is up.
+//
+// Driven from a MutationObserver rather than the `:root:has(.fx > .is-open)` rule
+// this replaces: matching :has() on <html> means re-evaluating the root's style
+// when a class changes deep inside #fx, and that invalidation is exactly what a
+// selector engine is least reliable about. On device the page floor worked and
+// the overlay floor silently didn't, which is the signature of a missed
+// invalidation. An inline style can't half-apply.
+function syncFxFloor() {
+  if (!fxEl) return;
+  const open = !!fxEl.querySelector('.is-open, #puzzle-gloom.is-on');
+  fxEl.classList.toggle('fx-open', open); // shows the matching floor strip in the layer
+  const floor = getComputedStyle(document.documentElement).getPropertyValue('--fx-floor').trim();
+  // Clearing the inline value hands the root back to the themed --bg-floor.
+  document.documentElement.style.backgroundColor = open && floor ? floor : '';
+}
+
+function watchFxFloor() {
+  if (!fxEl) return;
+  // Toggling fx-open on #fx is itself inside the observed subtree, but a
+  // no-op classList.toggle records no mutation, so this can't feed back.
+  new MutationObserver(syncFxFloor).observe(fxEl, {
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['class'],
+  });
+  syncFxFloor();
+}
+
 function cycleTheme() {
   const idx = THEMES.indexOf(prefs.theme);
   prefs.theme = THEMES[(idx + 1) % THEMES.length];
@@ -3106,6 +3143,7 @@ function wire() {
 }
 
 wire();
+watchFxFloor();
 
 // The fixed neon background layer (styles.css: body::before) used to be
 // sized from a JS-measured pixel height (--app-vh) because CSS viewport units
