@@ -2,6 +2,7 @@
 import {
   P1,
   P2,
+  EMPTY,
   ROWS,
   COLS,
   createBoard,
@@ -15,6 +16,8 @@ import {
   isFull,
   legalMoves,
   isColumnFull,
+  landingRow,
+  winningSquares,
   other,
 } from '../js/engine.js';
 import { chooseMove, choosePopoutMove, popoutMoves, applyPopoutMove, winChance, __test } from '../js/bot.js';
@@ -123,6 +126,38 @@ console.log('Engine: draw detection');
   for (let r = 0; r < 6; r++) for (let c = 0; c < 7; c++) b[r][c] = pattern[r][c];
   ok('full board reports isFull', isFull(b));
   ok('no legal moves on a full board', legalMoves(b).length === 0);
+}
+
+console.log('Engine: landing rows and threat squares');
+{
+  const b = createBoard();
+  ok('an empty column lands on the bottom row', landingRow(b, 3) === ROWS - 1);
+  dropDisc(b, 3, P1);
+  ok('the next disc lands on top of it', landingRow(b, 3) === ROWS - 2);
+  for (let i = 0; i < 5; i++) dropDisc(b, 3, P2);
+  ok('a full column reports -1', landingRow(b, 3) === -1);
+  ok('an off-board column reports -1', landingRow(b, -1) === -1 && landingRow(b, COLS) === -1);
+}
+{
+  // Three in a row along the bottom: both ends complete a four, and only those.
+  const b = createBoard();
+  for (const c of [1, 2, 3]) dropDisc(b, c, P1);
+  const sq = winningSquares(b, P1).map(([r, c]) => `${r},${c}`).sort();
+  ok('an open three has a winning square at each end',
+    sq.length === 2 && sq.includes(`${ROWS - 1},0`) && sq.includes(`${ROWS - 1},4`));
+  ok('the opponent has no winning square there', winningSquares(b, P2).length === 0);
+  ok('winningSquares leaves the board untouched',
+    b[ROWS - 1][0] === EMPTY && b[ROWS - 1][4] === EMPTY);
+}
+{
+  // A threat can sit out of reach: three in a column needs the square above, which
+  // is playable, while a gapped row needs a square with a hole under it.
+  const b = createBoard();
+  dropDisc(b, 0, P1); dropDisc(b, 1, P1); dropDisc(b, 3, P1); // bottom row: X X _ X
+  const sq = winningSquares(b, P1);
+  ok('a gap in a row is a winning square', sq.some(([r, c]) => r === ROWS - 1 && c === 2));
+  const reachable = sq.filter(([r, c]) => landingRow(b, c) === r);
+  ok('and it is reachable right now', reachable.some(([, c]) => c === 2));
 }
 
 console.log('Bot: always returns a legal move (all difficulties)');

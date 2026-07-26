@@ -58,6 +58,13 @@ export function dropDisc(board, col, player) {
   return null;
 }
 
+/** Row a disc dropped into `col` would land on, or -1 if the column is full. */
+export function landingRow(board, col) {
+  if (col < 0 || col >= COLS) return -1;
+  for (let r = ROWS - 1; r >= 0; r--) if (board[r][col] === EMPTY) return r;
+  return -1;
+}
+
 function inBounds(r, c) {
   return r >= 0 && r < ROWS && c >= 0 && c < COLS;
 }
@@ -124,6 +131,27 @@ export function findAnyWin(board) {
     }
   }
   return null;
+}
+
+/**
+ * Every empty square that would complete a four-in-a-row for `player` — the
+ * position's *threats*, whether or not they can be reached yet. A square that is
+ * playable right now is an immediate threat; one higher up the column has to be
+ * waited for. This is the vocabulary the Tactics teacher is built on.
+ * @returns {Array<[number,number]>}
+ */
+export function winningSquares(board, player) {
+  const out = [];
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (board[r][c] !== EMPTY) continue;
+      board[r][c] = player;
+      const win = checkWin(board, r, c);
+      board[r][c] = EMPTY;
+      if (win) out.push([r, c]);
+    }
+  }
+  return out;
 }
 
 /** Can `player` pop the bottom disc of `col`? (their own disc sits at the bottom row) */

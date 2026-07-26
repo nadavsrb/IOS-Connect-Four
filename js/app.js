@@ -17,6 +17,7 @@ import {
   findWinFor,
   hasAnyMove,
   legalMoves,
+  landingRow,
   other,
 } from './engine.js';
 import { solveBoard } from './solver.js';
@@ -24,6 +25,7 @@ import { chooseMove, choosePopoutMove, winChance } from './bot.js';
 import { emptyHistory, recordGame, summarize, winRate, DIFFICULTIES, DIFFICULTY_LABEL } from './stats.js';
 import { summarizeReview } from './review.js';
 import { PUZZLES } from './puzzles.js';
+import { TACTICS } from './tactics.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
@@ -64,6 +66,8 @@ const ICONS = {
   restart: S('<path d="M20 11.5a8 8 0 1 0-.8 4"/><path d="M20 4v5.5h-5.5"/>'),
   puzzle: S('<path d="M10.2 4a1.8 1.8 0 0 1 3.6 0c0 .9 1 1.5 1.8 1.1.5-.2 1.1-.1 1.5.3l.5.5c.4.4.5 1 .3 1.5-.4.8.2 1.8 1.1 1.8a1.8 1.8 0 0 1 0 3.6c-.9 0-1.5 1-1.1 1.8.2.5.1 1.1-.3 1.5l-.5.5c-.4.4-1 .5-1.5.3-.8-.4-1.8.2-1.8 1.1a1.8 1.8 0 0 1-3.6 0c0-.9-1-1.5-1.8-1.1-.5.2-1.1.1-1.5-.3l-.5-.5c-.4-.4-.5-1-.3-1.5.4-.8-.2-1.8-1.1-1.8a1.8 1.8 0 0 1 0-3.6c.9 0 1.5-1 1.1-1.8-.2-.5-.1-1.1.3-1.5l.5-.5c.4-.4 1-.5 1.5-.3.8.4 1.8-.2 1.8-1.1z"/>'),
   check: S('<path d="M5 12.5l4.2 4.5L19 6.5"/>', 'fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"'),
+  // Mortarboard — the Tactics teacher's hat.
+  cap: S('<path d="M2.5 9L12 5l9.5 4-9.5 4z"/><path d="M6.5 11v4.2c0 1.3 2.5 2.3 5.5 2.3s5.5-1 5.5-2.3V11"/><path d="M21.5 9v5"/>'),
 };
 
 function installIcons(root = document) {
@@ -262,6 +266,17 @@ const sound = (() => {
       tone(70, 1.0, 'sawtooth', difficulty === 'easy' ? 0.02 : 0.055, 0, difficulty === 'insane' ? 150 : 108);
       noise(0.9, 0.022, 420, 0.05);
       if (difficulty === 'insane') tone(101, 0.95, 'square', 0.028, 0.02, 143); // beating against the sweep
+    },
+    // The teacher approving: a warm rising third, nothing like the win fanfare.
+    aha() {
+      tone(587, 0.14, 'triangle', 0.07, 0, 784);
+      tone(880, 0.22, 'sine', 0.05, 0.1);
+    },
+    // "Not that one" — soft and low. A lesson shouldn't buzz at you like a
+    // rejected move does.
+    nope() {
+      tone(240, 0.11, 'sine', 0.055, 0, 205);
+      tone(186, 0.16, 'sine', 0.045, 0.09, 158);
     },
     // The toss landing on whoever goes first: a short rising two-note flourish.
     reveal() {
@@ -505,6 +520,20 @@ const pzRetryBtn = $('#pz-retry');
 const pzNextBtn = $('#pz-next');
 const puzzleConfettiLayer = $('#puzzle-confetti');
 
+const tacticListEl = $('#tactic-list');
+const tacticsCountEl = $('#tactics-count');
+const tacticsProgressFill = $('#tactics-progress-fill');
+const tacticBoardEl = $('#tactic-board');
+const tacticTitleEl = $('#tactic-title');
+const tacticStepsEl = $('#tactic-steps');
+const teacherEl = $('#teacher');
+const teacherBubbleEl = $('#teacher-bubble');
+const teacherSayEl = $('#teacher-say');
+const teacherLiveEl = $('#teacher-say-live');
+const tcShowBtn = $('#tc-show');
+const tcNextBtn = $('#tc-next');
+const tacticNextLabel = $('#tc-next-label');
+
 // ---------------------------------------------------------------- state
 
 const game = {
@@ -584,6 +613,10 @@ function clearForeignFx(id) {
     clearDevour();
   }
   if (id !== 'screen-puzzle') clearPuzzleLoss();
+  if (id !== 'screen-tactic') {
+    stopTeacher(); // stop him mid-sentence if you walk out
+    tactic.gen++; // and kill any drill sequence still waiting on a timer
+  }
   clearParticles(); // confetti/ash from the screen being left must not rain on this one
 }
 
@@ -2013,7 +2046,7 @@ function showHint() {
   }
 
   const col = move.col;
-  const row = lowestEmptyRow(game.board, col);
+  const row = landingRow(game.board, col);
   if (row < 0) return;
   for (let r = 0; r < ROWS; r++) cellAt(r, col).classList.add('hint');
   const ghost = spawnDisc(boardEl, row, col, colorFor(game.current));
@@ -2351,7 +2384,7 @@ function showReplayHint() {
     if (bottom) bottom.classList.add('pop-hint'); // the disc to pull out, not a landing hole
     return;
   }
-  const row = lowestEmptyRow(board, move.col);
+  const row = landingRow(board, move.col);
   if (row < 0) return;
   const ghost = spawnDisc(replayBoardEl, row, move.col, d.colors[mover]);
   ghost.classList.add('ghost');
@@ -2496,6 +2529,7 @@ function renderStats() {
   }
 
   renderPuzzleStats();
+  renderTacticStats();
   $('#stat-empty').hidden = s.total > 0 || puzzleProgress.solved.length > 0;
 }
 
@@ -2530,11 +2564,33 @@ function renderPuzzleStats() {
   }
 }
 
+// Which tactics you've been through. One row per tactic rather than a bar, since
+// eight of them fit and the names are the point.
+function renderTacticStats() {
+  const wrap = $('#stats-tactics');
+  const line = $('#stat-tc-line');
+  if (!wrap || !line) return;
+  const learned = new Set(tacticProgress.learned);
+  const done = TACTICS.filter((t) => learned.has(t.id)).length;
+  line.textContent = done ? `${done} / ${TACTICS.length} learned` : 'None learned yet';
+  wrap.innerHTML = '';
+  for (const t of TACTICS) {
+    const has = learned.has(t.id);
+    const row = document.createElement('div');
+    row.className = 'diff-row';
+    row.innerHTML =
+      `<span class="diff-name">${t.name}</span>` +
+      `<span class="diff-bar"><i style="width:${has ? 100 : 0}%"></i></span>` +
+      `<span class="diff-val">${has ? 'learned' : '—'}</span>`;
+    wrap.appendChild(row);
+  }
+}
+
 // ---------------------------------------------------------------- puzzles
 // A self-contained "play and win" puzzle mode. Each puzzle is a preset position
 // (you are P1/red, to move) with a single forcing line, all verified offline by
 // the solver (js/puzzles.js + tools/test_puzzles.mjs). It reuses the board
-// primitives (spawnDisc / cellIn / lowestEmptyRow) but keeps its own light input
+// primitives (spawnDisc / cellIn / landingRow) but keeps its own light input
 // and state so the core game flow is untouched.
 
 const PUZZLE_COLORS = { [P1]: '#ff3b30', [P2]: '#ffd23f' }; // fixed red vs yellow
@@ -2762,7 +2818,7 @@ const nextPuzzle = () => { if (puzzle.i < PUZZLES.length - 1) enterPuzzle(puzzle
 
 // Drop `player`'s disc into `col` on the puzzle board (animated), then cb(row).
 function puzzlePlace(col, player, cb) {
-  const row = lowestEmptyRow(puzzle.board, col);
+  const row = landingRow(puzzle.board, col);
   puzzle.board[row][col] = player;
   const disc = spawnDisc(puzzleBoardEl, row, col, PUZZLE_COLORS[player], { drop: true });
   sound.drop();
@@ -2800,7 +2856,7 @@ function onPuzzleSolved(winCells) {
 function puzzleDrop(col) {
   if (col == null || puzzle.solved || puzzle.failed || puzzle.busy) return;
   clearPuzzleHint();
-  const landing = lowestEmptyRow(puzzle.board, col);
+  const landing = landingRow(puzzle.board, col);
   if (landing < 0) { sound.invalid(); return; } // full column — not a move at all
 
   puzzle.busy = true;
@@ -2871,7 +2927,7 @@ function puzzleHint() {
     setPuzzleStatus('The win has slipped away — tap Retry.', 'bad');
     return;
   }
-  const row = lowestEmptyRow(puzzle.board, bestCol);
+  const row = landingRow(puzzle.board, bestCol);
   if (row < 0) return;
   for (let r = 0; r < ROWS; r++) cellIn(puzzleBoardEl, r, bestCol).classList.add('hint');
   const ghost = spawnDisc(puzzleBoardEl, row, bestCol, PUZZLE_COLORS[P1]);
@@ -2903,7 +2959,7 @@ function puzzleRenderAim(col) {
   clearPuzzleAim();
   if (col == null || !puzzleCanPlay()) return;
   for (let r = 0; r < ROWS; r++) cellIn(puzzleBoardEl, r, col).classList.add('col-hover');
-  const row = lowestEmptyRow(puzzle.board, col);
+  const row = landingRow(puzzle.board, col);
   if (row < 0) return;
   const ghost = document.createElement('div');
   ghost.className = 'disc aim';
@@ -2943,6 +2999,471 @@ function wirePuzzleBoard() {
   puzzleBoardEl.addEventListener('pointerleave', () => { if (pzAim.pointerId == null) clearPuzzleAim(); });
 }
 
+// ---------------------------------------------------------------- tactics
+// The taught half of the app: eight ideas, each with a lesson the teacher walks
+// you through and drills to try it on. The positions come from js/tactics.js,
+// where the solver has already confirmed that the move being taught is the only
+// move that works — so a wrong answer here is a real mistake, not an opinion.
+
+const TACTICS_KEY = 'c4.tactics.v1';
+let tacticProgress = loadJSON(TACTICS_KEY, { learned: [] });
+if (!Array.isArray(tacticProgress.learned)) tacticProgress.learned = [];
+const saveTacticProgress = () => saveJSON(TACTICS_KEY, tacticProgress);
+
+// One accent per tactic, in curriculum order — cool at the start, hot at the end.
+const TACTIC_TINT = ['#7cff6b', '#3dd7ff', '#8ab6ff', '#f5c451', '#ff9f3c', '#b26bff', '#ff5f9e', '#ff4d4d'];
+
+// phase: 'lesson' → 'drill' → 'finish' (playing the win out) → 'done'
+const tactic = { i: 0, phase: 'lesson', page: 0, drill: 0, board: null, busy: false, gen: 0, wrong: 0 };
+
+const DRILL_LEAD = ['', 'Again — a new position. ', 'Last one. '];
+
+function renderTacticList() {
+  if (!tacticListEl) return;
+  const learned = new Set(tacticProgress.learned);
+  tacticListEl.innerHTML = '';
+  TACTICS.forEach((t, i) => {
+    const done = learned.has(t.id);
+    const card = document.createElement('button');
+    card.className = 'tactic-card' + (done ? ' is-learned' : '');
+    card.style.setProperty('--tier', TACTIC_TINT[i % TACTIC_TINT.length]);
+    card.dataset.i = String(i);
+    card.setAttribute('role', 'listitem');
+    card.setAttribute('aria-label', `${t.name}. ${t.idea}${done ? ' Learned.' : ''}`);
+    card.innerHTML =
+      `<span class="tc-index">${i + 1}</span>` +
+      `<span class="tc-text"><span class="tc-name">${t.name}</span><span class="tc-idea">${t.idea}</span></span>` +
+      `<span class="tc-mark" data-icon="${done ? 'check' : 'cap'}"></span>`;
+    tacticListEl.appendChild(card);
+  });
+  installIcons(tacticListEl);
+  const count = TACTICS.filter((t) => learned.has(t.id)).length;
+  if (tacticsCountEl) tacticsCountEl.textContent = `${count} / ${TACTICS.length} learned`;
+  if (tacticsProgressFill) tacticsProgressFill.style.width = `${Math.round((count / TACTICS.length) * 100)}%`;
+}
+
+function openTactics() {
+  renderTacticList();
+  showScreen('screen-tactics', 'fwd');
+}
+
+// --- the teacher -------------------------------------------------------------
+// He types rather than dumps his lines: it paces the lesson, and tapping the
+// bubble skips to the end for anyone who reads faster than he talks.
+let sayGen = 0;
+let sayTimer = null;
+let sayFull = '';
+
+function stopTeacher() {
+  sayGen++;
+  clearTimeout(sayTimer);
+  sayTimer = null;
+  if (teacherSayEl) teacherSayEl.classList.remove('is-typing');
+  // Not 'is-pointing': the staff belongs to the board, not to the sentence, and
+  // every line he says while pointing would otherwise put it away again.
+  if (teacherEl) teacherEl.classList.remove('is-talking', 'is-pleased', 'is-stern');
+}
+
+function teacherSay(text, mood = '') {
+  if (!teacherSayEl) return;
+  stopTeacher();
+  const gen = sayGen;
+  sayFull = text;
+  if (mood) teacherEl?.classList.add(`is-${mood}`);
+  // Announce the whole line at once; the visible element is typed into and would
+  // otherwise be read out a letter at a time.
+  if (teacherLiveEl) teacherLiveEl.textContent = text;
+  if (prefersReducedMotion()) {
+    teacherSayEl.textContent = text;
+    return;
+  }
+  teacherSayEl.textContent = '';
+  teacherSayEl.classList.add('is-typing');
+  teacherEl?.classList.add('is-talking');
+  let i = 0;
+  const step = () => {
+    if (gen !== sayGen) return;
+    i = Math.min(text.length, i + 2);
+    teacherSayEl.textContent = text.slice(0, i);
+    if (i < text.length) { sayTimer = setTimeout(step, 18); return; }
+    teacherSayEl.classList.remove('is-typing');
+    teacherEl?.classList.remove('is-talking');
+  };
+  step();
+}
+
+// Tap the bubble to hear the rest at once.
+function finishTeacherLine() {
+  if (!sayTimer || !teacherSayEl) return;
+  clearTimeout(sayTimer);
+  sayTimer = null;
+  sayGen++;
+  teacherSayEl.textContent = sayFull;
+  teacherSayEl.classList.remove('is-typing');
+  teacherEl?.classList.remove('is-talking');
+}
+
+// --- board painting ----------------------------------------------------------
+
+function paintTacticBoard(board) {
+  buildBoardInto(tacticBoardEl);
+  tacticBoardEl.classList.add('col-hint');
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const v = board[r][c];
+      if (v !== EMPTY) spawnDisc(tacticBoardEl, r, c, PUZZLE_COLORS[v]);
+    }
+  }
+}
+
+function clearTacticMarks() {
+  teacherEl?.classList.remove('is-pointing'); // nothing left to point at
+  tacticBoardEl.querySelectorAll('.teach-mark, .teach-lit, .hint, .wrong, .col-hover')
+    .forEach((c) => c.classList.remove('teach-mark', 'teach-lit', 'hint', 'wrong', 'col-hover'));
+  tacticBoardEl.querySelectorAll('.disc.ghost, .disc.aim').forEach((d) => d.remove());
+}
+
+function markCells(cells) {
+  (cells || []).forEach(([r, c]) => cellIn(tacticBoardEl, r, c)?.classList.add('teach-mark'));
+}
+
+function litColumns(cols) {
+  (cols || []).forEach((c) => { for (let r = 0; r < ROWS; r++) cellIn(tacticBoardEl, r, c)?.classList.add('teach-lit'); });
+}
+
+function litRows(rows) {
+  (rows || []).forEach((r) => { for (let c = 0; c < COLS; c++) cellIn(tacticBoardEl, r, c)?.classList.add('teach-lit'); });
+}
+
+// --- progress dots -----------------------------------------------------------
+
+function renderTacticSteps() {
+  if (!tacticStepsEl) return;
+  const t = TACTICS[tactic.i];
+  const pages = t.lesson.length;
+  // A solved drill counts as behind you, so its dot fills and the next one lights.
+  const at = (tactic.phase === 'lesson' ? tactic.page : pages + tactic.drill) +
+    (tactic.phase === 'solved' ? 1 : 0);
+  tacticStepsEl.innerHTML = '';
+  for (let k = 0; k < pages + t.drills.length; k++) {
+    const dot = document.createElement('i');
+    if (k >= pages) dot.classList.add('is-drill');
+    if (k < at || tactic.phase === 'done') dot.classList.add('is-done');
+    if (k === at && tactic.phase !== 'done') dot.classList.add('is-now');
+    tacticStepsEl.appendChild(dot);
+  }
+}
+
+// --- lesson ------------------------------------------------------------------
+
+function enterTactic(i) {
+  if (i < 0 || i >= TACTICS.length) return;
+  tactic.i = i;
+  tactic.gen++;
+  tactic.phase = 'lesson';
+  tactic.page = 0;
+  tactic.drill = 0;
+  tactic.busy = false;
+  tactic.wrong = 0;
+  tactic.board = null;
+  if (tacticTitleEl) tacticTitleEl.textContent = TACTICS[i].name;
+  showScreen('screen-tactic', 'fwd');
+  teacherEl?.classList.add('is-active');
+  showLessonPage(0);
+}
+
+function showLessonPage(page) {
+  const t = TACTICS[tactic.i];
+  tactic.phase = 'lesson';
+  tactic.page = Math.max(0, Math.min(page, t.lesson.length - 1));
+  const p = t.lesson[tactic.page];
+  tactic.board = decodePuzzleGrid(p.grid);
+  paintTacticBoard(tactic.board);
+  clearTacticMarks();
+  markCells(p.marks);
+  litColumns(p.cols);
+  litRows(p.rows);
+  teacherSay(p.say);
+  if (tcShowBtn) tcShowBtn.hidden = true;
+  if (tcNextBtn) {
+    tcNextBtn.hidden = false;
+    setTacticNextLabel(tactic.page < t.lesson.length - 1 ? 'Next' : 'Try it');
+  }
+  renderTacticSteps();
+}
+
+function setTacticNextLabel(text) {
+  if (!tacticNextLabel) return;
+  tacticNextLabel.textContent = text;
+}
+
+// --- drills ------------------------------------------------------------------
+
+function startDrill(k) {
+  const t = TACTICS[tactic.i];
+  if (k >= t.drills.length) { finishTactic(); return; }
+  tactic.gen++;
+  tactic.phase = 'drill';
+  tactic.drill = k;
+  tactic.busy = false;
+  tactic.wrong = 0;
+  tactic.board = decodePuzzleGrid(t.drills[k].grid);
+  paintTacticBoard(tactic.board);
+  clearTacticMarks();
+  teacherSay((DRILL_LEAD[k] || '') + t.ask);
+  if (tcShowBtn) { tcShowBtn.hidden = false; tcShowBtn.disabled = false; }
+  if (tcNextBtn) tcNextBtn.hidden = true;
+  renderTacticSteps();
+}
+
+// Drop `player`'s disc on the tactic board (animated), then cb(row).
+function tacticPlace(col, player, cb) {
+  const row = landingRow(tactic.board, col);
+  if (row < 0) return;
+  tactic.board[row][col] = player;
+  const disc = spawnDisc(tacticBoardEl, row, col, PUZZLE_COLORS[player], { drop: true });
+  sound.drop();
+  haptic(10);
+  onceAnimation(disc, () => cb(row));
+}
+
+function tacticWrong(col, message) {
+  sound.nope();
+  haptic(14);
+  for (let r = 0; r < ROWS; r++) cellIn(tacticBoardEl, r, col)?.classList.add('wrong');
+  setTimeout(() => tacticBoardEl.querySelectorAll('.cell.wrong').forEach((c) => c.classList.remove('wrong')), 420);
+  teacherSay(message, 'stern');
+}
+
+function tacticDrop(col) {
+  if (col == null || tactic.busy) return;
+  if (tactic.phase !== 'drill' && tactic.phase !== 'finish') return;
+  if (landingRow(tactic.board, col) < 0) { sound.invalid(); return; }
+  clearTacticMarks();
+
+  const t = TACTICS[tactic.i];
+  const gen = tactic.gen;
+
+  // Playing the win out after a fork: any move that makes four finishes it.
+  if (tactic.phase === 'finish') {
+    const d = cloneBoard(tactic.board);
+    const landing = dropDisc(d, col, P1);
+    if (!checkWin(d, landing.row, landing.col)) {
+      tacticWrong(col, 'Not that one. One square on this board gives you four — find it.');
+      return;
+    }
+    tactic.busy = true;
+    tacticPlace(col, P1, (r) => {
+      if (tactic.gen !== gen) return;
+      const cells = checkWin(tactic.board, r, col);
+      cells?.forEach(([wr, wc]) => cellIn(tacticBoardEl, wr, wc).querySelector('.disc')?.classList.add('win'));
+      sound.win();
+      haptic([12, 40, 18]);
+      teacherSay('Four. That is the whole idea — the fork did the work, you only collected it.', 'pleased');
+      drillSolved();
+    });
+    return;
+  }
+
+  const drill = t.drills[tactic.drill];
+  if (!drill.good.includes(col)) {
+    tactic.wrong++;
+    tacticWrong(col, tactic.wrong >= 2 ? `${t.nudge} Tap Show me and I will point at it.` : t.nudge);
+    return;
+  }
+
+  tactic.busy = true;
+  tacticPlace(col, P1, () => {
+    if (tactic.gen !== gen) return;
+    // The squares the tactic is about, worked out and verified when the drill was
+    // generated — so the teacher points at exactly what he is talking about.
+    markCells(drill.show);
+    sound.aha();
+    haptic([10, 30, 14]);
+    teacherSay(t.why, 'pleased');
+
+    // Where the payoff is a forced finish, play it out rather than assert it.
+    if (drill.follow) {
+      setTimeout(() => {
+        if (tactic.gen !== gen) return;
+        const reply = puzzleBestDefence(tactic.board);
+        if (reply == null) { drillSolved(); return; }
+        tacticPlace(reply, P2, () => {
+          if (tactic.gen !== gen) return;
+          clearTacticMarks();
+          tactic.phase = 'finish';
+          tactic.busy = false;
+          teacherSay('Their best defence. It stops one of them. Now take the other — make your four.');
+        });
+      }, 900);
+      return;
+    }
+    drillSolved();
+  });
+}
+
+// A drill is done: offer the next one, or wrap the tactic up.
+function drillSolved() {
+  const t = TACTICS[tactic.i];
+  tactic.busy = false;
+  tactic.phase = 'solved';
+  if (tcShowBtn) tcShowBtn.hidden = true;
+  if (tcNextBtn) {
+    tcNextBtn.hidden = false;
+    setTacticNextLabel(tactic.drill < t.drills.length - 1 ? 'Next position' : 'Finish');
+  }
+  renderTacticSteps();
+}
+
+function finishTactic() {
+  const t = TACTICS[tactic.i];
+  tactic.phase = 'done';
+  tactic.busy = false;
+  if (!tacticProgress.learned.includes(t.id)) {
+    tacticProgress.learned.push(t.id);
+    saveTacticProgress();
+  }
+  clearTacticMarks();
+  teacherSay(t.close, 'pleased');
+  sound.win();
+  if (!prefersReducedMotion() && puzzleConfettiLayer) {
+    spawnConfetti(90, puzzleConfettiLayer, ['#f5c451', '#7cff6b', '#3dd7ff', PUZZLE_COLORS[P1], PUZZLE_COLORS[P2]]);
+  }
+  if (tcShowBtn) tcShowBtn.hidden = true;
+  if (tcNextBtn) {
+    tcNextBtn.hidden = false;
+    setTacticNextLabel(tactic.i < TACTICS.length - 1 ? 'Next tactic' : 'Done');
+  }
+  renderTacticSteps();
+}
+
+// The one button that moves you forward, whatever you're in the middle of.
+function tacticNext() {
+  const t = TACTICS[tactic.i];
+  if (tactic.phase === 'lesson') {
+    if (tactic.page < t.lesson.length - 1) showLessonPage(tactic.page + 1);
+    else startDrill(0);
+    return;
+  }
+  if (tactic.phase === 'solved') {
+    if (tactic.drill < t.drills.length - 1) startDrill(tactic.drill + 1);
+    else finishTactic();
+    return;
+  }
+  if (tactic.phase === 'done') {
+    if (tactic.i < TACTICS.length - 1) enterTactic(tactic.i + 1);
+    else openTactics();
+  }
+}
+
+// "Show me": the staff comes down and points at the column.
+function tacticShowMe() {
+  if (tactic.phase === 'drill') {
+    const col = TACTICS[tactic.i].drills[tactic.drill].good[0];
+    pointAtColumn(col);
+    teacherSay('Here. Look at what it does before you play it.');
+    return;
+  }
+  if (tactic.phase === 'finish') {
+    const col = legalMoves(tactic.board).find((c) => {
+      const d = cloneBoard(tactic.board);
+      const l = dropDisc(d, c, P1);
+      return checkWin(d, l.row, l.col);
+    });
+    if (col != null) { pointAtColumn(col); teacherSay('There. That is your four.'); }
+  }
+}
+
+function pointAtColumn(col) {
+  clearTacticMarks();
+  aimStaffAt(col);
+  teacherEl?.classList.add('is-pointing');
+  setTimeout(() => teacherEl?.classList.remove('is-pointing'), 2600);
+  for (let r = 0; r < ROWS; r++) cellIn(tacticBoardEl, r, col).classList.add('hint');
+  const row = landingRow(tactic.board, col);
+  if (row < 0) return;
+  const ghost = spawnDisc(tacticBoardEl, row, col, PUZZLE_COLORS[P1]);
+  ghost.classList.add('ghost');
+}
+
+// Swing the staff to the angle that actually aims at `col`, measured from its
+// pivot (its bottom end) to the top of that column. A fixed angle looked like a
+// shrug whenever the column wasn't where the artwork assumed.
+function aimStaffAt(col) {
+  if (!teacherEl) return;
+  const cell = cellIn(tacticBoardEl, 0, col);
+  if (!cell) return;
+  const me = teacherEl.getBoundingClientRect();
+  const target = cell.getBoundingClientRect();
+  // The staff sits 2px in from the right edge and 6px up from the bottom (styles.css),
+  // and rotates about its lower end.
+  const px = me.right - 3.5;
+  const py = me.bottom - 6;
+  const dx = target.left + target.width / 2 - px;
+  const dy = target.top - py;
+  // rotate(0deg) points straight up, so this is the angle off vertical.
+  let deg = (Math.atan2(dx, -dy) * 180) / Math.PI;
+  deg = Math.max(95, Math.min(170, deg)); // never point up, never fold back on himself
+  teacherEl.style.setProperty('--point', `${deg.toFixed(1)}deg`);
+}
+
+// ---------------------------------------------------------------- board input (shared)
+// Press (or hover) to aim, release to drop. The game and puzzle boards each grew
+// their own copy of this; the tactics board takes it as a parameter instead.
+function bindBoardAim(el, api) {
+  const hoverCapable = window.matchMedia('(hover: hover)').matches;
+  const state = { pointerId: null };
+
+  const clear = () => {
+    el.querySelectorAll('.disc.aim').forEach((d) => d.remove());
+    el.querySelectorAll('.cell.col-hover').forEach((c) => c.classList.remove('col-hover'));
+  };
+  const colAt = (x, y) => {
+    const hit = document.elementFromPoint(x, y);
+    const cell = hit && hit.closest ? hit.closest('.cell') : null;
+    return cell && el.contains(cell) ? Number(cell.dataset.col) : null;
+  };
+  const aim = (col) => {
+    clear();
+    if (col == null || !api.canPlay()) return;
+    for (let r = 0; r < ROWS; r++) cellIn(el, r, col).classList.add('col-hover');
+    const row = api.landing(col);
+    if (row < 0) return;
+    const ghost = document.createElement('div');
+    ghost.className = 'disc aim';
+    ghost.style.setProperty('--disc', api.colour());
+    cellIn(el, row, col).appendChild(ghost);
+  };
+
+  el.addEventListener('pointerdown', (e) => {
+    if (!api.canPlay()) return;
+    if (!e.target.closest('.cell')) return;
+    state.pointerId = e.pointerId;
+    try { el.setPointerCapture(e.pointerId); } catch { /* not fatal */ }
+    aim(Number(e.target.closest('.cell').dataset.col));
+    e.preventDefault();
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (state.pointerId === e.pointerId) {
+      aim(colAt(e.clientX, e.clientY));
+      e.preventDefault();
+    } else if (state.pointerId == null && hoverCapable) {
+      const cell = e.target.closest('.cell');
+      aim(cell ? Number(cell.dataset.col) : null);
+    }
+  });
+  el.addEventListener('pointerup', (e) => {
+    if (state.pointerId !== e.pointerId) return;
+    const col = colAt(e.clientX, e.clientY);
+    try { el.releasePointerCapture(e.pointerId); } catch { /* not fatal */ }
+    state.pointerId = null;
+    el.querySelectorAll('.disc.aim').forEach((d) => d.remove());
+    if (col != null) api.drop(col);
+  });
+  el.addEventListener('pointercancel', () => { state.pointerId = null; clear(); });
+  el.addEventListener('pointerleave', () => { if (state.pointerId == null) clear(); });
+}
+
 // ---------------------------------------------------------------- column hover (pointer devices)
 
 function setHoverCol(col) {
@@ -2959,12 +3480,6 @@ function setHoverCol(col) {
 // then click). The actual drop happens on pointer release via humanPlay().
 
 const aimState = { pointerId: null };
-
-// Lowest empty row in `col` for a given board, or -1 if the column is full.
-function lowestEmptyRow(board, col) {
-  for (let r = ROWS - 1; r >= 0; r--) if (board[r][col] === EMPTY) return r;
-  return -1;
-}
 
 // Can the human commit a move right now (drop or, in armed Pop-Out, a pop)?
 function canPlay() {
@@ -2991,7 +3506,7 @@ function renderAim(col) {
   boardEl.querySelectorAll('.disc.aim').forEach((d) => d.remove());
   setHoverCol(col);
   if (col == null || !canAim()) return;
-  const r = lowestEmptyRow(game.board, col);
+  const r = landingRow(game.board, col);
   if (r < 0) return; // full column — the highlight still shows, but there's no landing hole
   const ghost = document.createElement('div');
   ghost.className = 'disc aim';
@@ -3091,8 +3606,26 @@ function wire() {
   pzNextBtn.addEventListener('click', nextPuzzle);
   wirePuzzleBoard();
 
+  // Tactics: list navigation, the teacher's two controls, and the drill board.
+  $('#btn-mode-tactics')?.addEventListener('click', openTactics);
+  tacticListEl?.addEventListener('click', (e) => {
+    const card = e.target.closest('.tactic-card');
+    if (card) enterTactic(Number(card.dataset.i));
+  });
+  tcNextBtn?.addEventListener('click', tacticNext);
+  tcShowBtn?.addEventListener('click', tacticShowMe);
+  teacherBubbleEl?.addEventListener('click', finishTeacherLine);
+  bindBoardAim(tacticBoardEl, {
+    canPlay: () => currentScreen === 'screen-tactic' && !tactic.busy &&
+      (tactic.phase === 'drill' || tactic.phase === 'finish'),
+    landing: (col) => landingRow(tactic.board, col),
+    colour: () => PUZZLE_COLORS[P1],
+    drop: tacticDrop,
+  });
+
   document.querySelectorAll('[data-nav="menu"]').forEach((el) => el.addEventListener('click', goMenu));
   document.querySelectorAll('[data-nav="puzzles"]').forEach((el) => el.addEventListener('click', openPuzzles));
+  document.querySelectorAll('[data-nav="tactics"]').forEach((el) => el.addEventListener('click', openTactics));
 
   diffSegs.forEach((seg) => {
     seg.addEventListener('click', () => {

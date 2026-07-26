@@ -57,6 +57,13 @@
             <span class="btn-mode-sub">56 puzzles — beat the best defence</span>
           </span>
         </button>
+        <button id="btn-mode-tactics" class="btn btn-quaternary btn-mode">
+          <span class="btn-mode-icon" aria-hidden="true" data-icon="cap"></span>
+          <span class="btn-mode-text">
+            <span class="btn-mode-title">Tactics</span>
+            <span class="btn-mode-sub">Learn the ideas that win games</span>
+          </span>
+        </button>
       </div>
 
       <div class="menu-footer">
@@ -318,6 +325,11 @@
           <div class="stat-diff" id="stats-puzzles"></div>
         </div>
 
+        <div class="stat-section">
+          <p class="field-label">Tactics <span class="stat-line" id="stat-tc-line">None learned yet</span></p>
+          <div class="stat-diff" id="stats-tactics"></div>
+        </div>
+
         <p class="stat-empty" id="stat-empty" hidden>Play a game to start building your stats.</p>
       </div>
     </section>
@@ -364,6 +376,76 @@
         <button id="pz-hint" class="btn btn-ghost"><span class="ico" data-icon="bulb"></span> Hint</button>
         <button id="pz-retry" class="btn btn-ghost"><span class="ico" data-icon="restart"></span> Retry</button>
         <button id="pz-next" class="btn btn-primary" hidden>Next <span class="ico" data-icon="play"></span></button>
+      </div>
+
+    </section>
+
+    <!-- ================= TACTICS (list) ================= -->
+    <section id="screen-tactics" class="screen" aria-label="Tactics">
+      <header class="topbar">
+        <button class="icon-btn" data-nav="menu" aria-label="Back to menu"><span data-icon="back"></span></button>
+        <h2 class="topbar-title">Tactics</h2>
+        <span class="icon-btn-spacer"></span>
+      </header>
+
+      <p class="tactics-intro">Eight ideas that decide Connect Four games. A teacher explains each one, then sets you positions to try it on — every drill <b>proven by the solver</b>.</p>
+      <div class="puzzles-progress"><span id="tactics-progress-fill"></span></div>
+      <p class="puzzles-count" id="tactics-count">0 / 8 learned</p>
+
+      <div class="tactic-list" id="tactic-list" role="list" aria-label="Tactics"></div>
+    </section>
+
+    <!-- ================= TACTIC (lesson + drills) ================= -->
+    <section id="screen-tactic" class="screen" aria-label="Tactic">
+      <header class="topbar">
+        <button class="icon-btn" data-nav="tactics" aria-label="Back to tactics"><span data-icon="back"></span></button>
+        <h2 class="topbar-title" id="tactic-title">Tactic</h2>
+        <span class="icon-btn-spacer"></span>
+      </header>
+
+      <!-- The teacher: an old sage in a mortarboard who hovers above the board and
+           talks you through the idea, then points at the board when you're stuck.
+           Built the same way as #bot-robot — plain elements, no images. -->
+      <div class="teach-head">
+        <div id="teacher" class="teacher" aria-hidden="true">
+          <div class="tc-body">
+            <span class="tc-aura"></span>
+            <div class="tc-robe"><span class="tc-collar"></span></div>
+            <div class="tc-head">
+              <span class="tc-hair"></span>
+              <span class="tc-brow tc-brow-l"></span>
+              <span class="tc-brow tc-brow-r"></span>
+              <span class="tc-specs">
+                <i class="tc-lens"><b class="tc-eye"></b></i>
+                <i class="tc-bridge"></i>
+                <i class="tc-lens"><b class="tc-eye"></b></i>
+              </span>
+              <span class="tc-beard"></span>
+              <span class="tc-mouth"></span>
+            </div>
+            <span class="tc-cap"><i class="tc-cap-top"></i><i class="tc-tassel"></i></span>
+            <span class="tc-staff"></span>
+            <span class="tc-spark"></span>
+          </div>
+        </div>
+        <div class="teach-bubble" id="teacher-bubble">
+          <!-- He types his lines out, so the visible text is announced to a screen
+               reader once, in full, from the mirror below rather than a letter at
+               a time from the element that is being typed into. -->
+          <p class="teach-say" id="teacher-say"></p>
+          <span id="teacher-say-live" class="sr-only" aria-live="polite"></span>
+        </div>
+      </div>
+
+      <div class="teach-steps" id="tactic-steps" aria-hidden="true"></div>
+
+      <div class="board-wrap">
+        <div id="tactic-board" class="board" role="grid" aria-label="Tactic board"></div>
+      </div>
+
+      <div class="tactic-controls">
+        <button id="tc-show" class="btn btn-ghost"><span class="ico" data-icon="bulb"></span> Show me</button>
+        <button id="tc-next" class="btn btn-primary"><span id="tc-next-label">Next</span> <span class="ico" data-icon="play"></span></button>
       </div>
 
     </section>

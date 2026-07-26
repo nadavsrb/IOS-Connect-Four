@@ -1,7 +1,9 @@
 // Browser smoke test: drives the real UI in Chromium at an iPhone viewport.
 // Usage: node tools/smoke_test.mjs <baseURL> <screenshotDir>
 import { chromium, devices } from 'playwright-core';
+import { ROWS } from '../js/engine.js';
 import { PUZZLES } from '../js/puzzles.js';
+import { TACTICS } from '../js/tactics.js';
 import { decodePng, largestVerticalStep } from './png.mjs';
 
 const BASE = process.argv[2] || 'http://127.0.0.1:8080';
@@ -956,6 +958,121 @@ try {
   ok('everything is still unlocked after solving', (await page.locator('#puzzle-grid .puzzle-cell:disabled').count()) === 0);
   await page.screenshot({ path: `${SHOTS}/12b-puzzles-solved.png` });
   await page.locator('#screen-puzzles [data-nav="menu"]').click();
+  await wait(150);
+
+  // --- Tactics: the teacher, a lesson, a drill answered wrong then right ---
+  await page.evaluate(() => localStorage.removeItem('c4.tactics.v1'));
+  await page.reload({ waitUntil: 'networkidle' });
+  await wait(300);
+  ok('menu shows the Tactics button', await page.locator('#btn-mode-tactics').isVisible());
+  await page.locator('#btn-mode-tactics').click();
+  await wait(250);
+  ok('tactics list opens', await page.locator('#screen-tactics').evaluate((el) => el.classList.contains('is-active')));
+  ok('every tactic is listed', (await page.locator('#tactic-list .tactic-card').count()) === TACTICS.length);
+  ok('none are learned on a fresh install', (await page.locator('.tactic-card.is-learned').count()) === 0);
+  ok('the list counts them', /0 \/ \d+ learned/.test((await page.locator('#tactics-count').textContent()) || ''));
+
+  await page.locator('#tactic-list .tactic-card').first().click();
+  await wait(400);
+  const tac = TACTICS[0];
+  ok('the tactic screen opens', await page.locator('#screen-tactic').evaluate((el) => el.classList.contains('is-active')));
+  ok('the teacher appears above the board', (await page.locator('#teacher.is-active').count()) === 1);
+  ok('the teacher is a figure, not an emoji', (await page.locator('#teacher .tc-cap, #teacher .tc-beard, #teacher .tc-specs').count()) === 3);
+  // He types his line out; tapping the bubble finishes it immediately.
+  await page.locator('#teacher-bubble').click();
+  await wait(150);
+  ok('the teacher says the first lesson page in full',
+    ((await page.locator('#teacher-say').textContent()) || '').trim() === tac.lesson[0].say);
+  ok('one step dot per lesson page and drill',
+    (await page.locator('#tactic-steps i').count()) === tac.lesson.length + tac.drills.length);
+  // Page 1 of the first lesson lights the centre column: 6 cells, and it has to be
+  // painted (the per-theme .socket rules used to win this fight silently).
+  ok('a lit column shows on the board', (await page.locator('#tactic-board .cell.teach-lit').count()) === 6);
+  ok('the lit ring is actually painted', await page.locator('#tactic-board .cell.teach-lit').first().evaluate(
+    (el) => getComputedStyle(el, '::before').boxShadow.includes('245, 196, 81')));
+  // Everything has to fit: this screen carries a whole extra row of chrome.
+  const tacticFits = await page.evaluate(() => {
+    const ctrl = document.querySelector('.tactic-controls').getBoundingClientRect();
+    return ctrl.bottom <= window.innerHeight + 1 &&
+      document.documentElement.scrollHeight <= window.innerHeight + 1;
+  });
+  ok('the tactic screen fits the viewport with no scroll', tacticFits);
+  await page.screenshot({ path: `${SHOTS}/13-tactic-lesson.png` });
+
+  // Walk to the drills.
+  for (let i = 1; i < tac.lesson.length; i++) { await page.locator('#tc-next').click(); await wait(250); }
+  ok('the last lesson page offers the drills', (await page.locator('#tc-next-label').textContent()) === 'Try it');
+  await page.locator('#tc-next').click();
+  await wait(400);
+  const tDiscs = () => page.locator('#tactic-board .disc').count();
+  const drillPreset = [...tac.drills[0].grid].filter((ch) => ch !== '0').length;
+  ok('the drill position is painted', (await tDiscs()) === drillPreset);
+  ok('the drill hides Next until it is answered', !(await page.locator('#tc-next').isVisible()));
+
+  const goodCol = tac.drills[0].good[0];
+  const badCol = [0, 1, 2, 3, 4, 5, 6].find((c) => c !== goodCol && tac.drills[0].grid[c] === '0');
+  await page.locator(`#tactic-board .cell[data-col="${badCol}"]`).first().click();
+  await wait(400);
+  ok('a wrong answer plays nothing', (await tDiscs()) === drillPreset);
+  ok('a wrong answer makes the teacher stern', (await page.locator('#teacher.is-stern').count()) === 1);
+  ok('a wrong answer is explained', ((await page.locator('#teacher-say').textContent()) || '').length > 0);
+
+  // "Show me" points the staff at the column and rings it.
+  await page.locator('#tc-show').click();
+  await wait(300);
+  ok('Show me points the staff', (await page.locator('#teacher.is-pointing').count()) === 1);
+  ok('Show me rings the right column', (await page.locator(`#tactic-board .cell[data-col="${goodCol}"].hint`).count()) === ROWS);
+  await page.screenshot({ path: `${SHOTS}/13b-tactic-showme.png` });
+
+  await page.locator(`#tactic-board .cell[data-col="${goodCol}"]`).first().click();
+  await wait(900);
+  ok('the right answer is played', (await tDiscs()) === drillPreset + 1);
+  ok('the teacher approves', (await page.locator('#teacher.is-pleased').count()) === 1);
+  ok('it lights up what the move built',
+    (await page.locator('#tactic-board .cell.teach-mark').count()) === tac.drills[0].show.length);
+  ok('a solved drill offers the next one', await page.locator('#tc-next').isVisible());
+  await page.screenshot({ path: `${SHOTS}/13c-tactic-drill.png` });
+
+  // Finish the rest of the drills, playing the win out where the drill allows it.
+  for (let k = 1; k < tac.drills.length; k++) {
+    await page.locator('#tc-next').click();
+    await wait(400);
+    await page.locator(`#tactic-board .cell[data-col="${tac.drills[k].good[0]}"]`).first().click();
+    await wait(1000);
+    if (tac.drills[k].follow) {
+      await wait(1600); // their defence lands, then you finish it
+      for (const c of [0, 1, 2, 3, 4, 5, 6]) {
+        const n = await tDiscs();
+        await page.locator(`#tactic-board .cell[data-col="${c}"]`).first().click();
+        await wait(600);
+        if ((await tDiscs()) > n) break;
+      }
+      await wait(400);
+      ok(`drill ${k + 1} could be played out to a four`, (await page.locator('#tactic-board .disc.win').count()) === 4);
+    }
+  }
+  ok('the last drill offers to finish the tactic', (await page.locator('#tc-next-label').textContent()) === 'Finish');
+  await page.locator('#tc-next').click();
+  await wait(500);
+  ok('finishing a tactic records it',
+    (JSON.parse((await page.evaluate(() => localStorage.getItem('c4.tactics.v1'))) || '{}').learned || []).includes(tac.id));
+  ok('finishing a tactic celebrates', (await page.locator('#puzzle-confetti .confetti-piece').count()) > 0);
+  ok('and offers the next tactic', (await page.locator('#tc-next-label').textContent()) === 'Next tactic');
+  await page.screenshot({ path: `${SHOTS}/13d-tactic-done.png` });
+
+  await page.locator('#screen-tactic [data-nav="tactics"]').click();
+  await wait(250);
+  ok('the learned tactic is marked in the list', (await page.locator('.tactic-card.is-learned').count()) === 1);
+  ok('the count follows', /1 \/ \d+ learned/.test((await page.locator('#tactics-count').textContent()) || ''));
+  // Leaving mid-sentence must stop him talking rather than leave a timer running.
+  await page.locator('#tactic-list .tactic-card').nth(1).click();
+  await wait(200);
+  await page.locator('#screen-tactic [data-nav="tactics"]').click();
+  await wait(400);
+  ok('walking out mid-sentence stops the teacher',
+    (await page.locator('#teacher.is-talking').count()) === 0 &&
+    (await page.locator('#teacher-say.is-typing').count()) === 0);
+  await page.locator('#screen-tactics [data-nav="menu"]').click();
   await wait(150);
 
   // --- Turn timer: 15s countdown then timeout loss (slowest, do last) ---

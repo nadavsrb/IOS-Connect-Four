@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Connect Four — a neon PWA that plays on your iPhone (vs bot or two-player pass-and-play).",
   "scripts": {
-    "test": "node tools/test_engine.mjs && node tools/test_puzzles.mjs && node tools/test_review.mjs",
+    "test": "node tools/test_engine.mjs && node tools/test_puzzles.mjs && node tools/test_review.mjs && node tools/test_tactics.mjs",
     "start": "python3 -m http.server 8080"
   }
 }
