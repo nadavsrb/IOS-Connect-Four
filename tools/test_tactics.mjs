@@ -145,6 +145,17 @@ for (const t of TACTICS) {
 
     const per = scores(board);
     ok(`${label} solved inside the budget`, [...per.values()].every((v) => v !== null));
+
+    // The shipped per-column verdicts are what the app judges your move against,
+    // so they have to match a solve done here from scratch — including which
+    // columns are full.
+    ok(`${label} 'values' matches a fresh solve`,
+      Array.isArray(d.values) && d.values.length === COLS &&
+      d.values.every((v, c) => (per.has(c) ? v === per.get(c) : v === null)));
+    // And the move being taught has to be the best of them, or "as good as the
+    // teacher's move" would let a worse move through.
+    ok(`${label} the taught move scores highest`,
+      d.values[d.good[0]] === Math.max(...d.values.filter((v) => v != null)));
     const wins = [...per.entries()].filter(([, v]) => v > 0).map(([c]) => c);
     const survives = [...per.entries()].filter(([, v]) => v >= 0).map(([c]) => c);
     // An attacking tactic must be the only winning move; a defensive one the only

@@ -18,6 +18,7 @@ import {
   hasAnyMove,
   legalMoves,
   landingRow,
+  winningSquares,
   other,
 } from './engine.js';
 import { solveBoard } from './solver.js';
@@ -2210,7 +2211,7 @@ function setReviewProgress(frac, running) {
   reviewProgress.hidden = !running;
   const pct = Math.round(frac * 100);
   if (reviewProgressFill) reviewProgressFill.style.width = `${pct}%`;
-  if (reviewProgressLabel) reviewProgressLabel.textContent = `Analysing… ${pct}%`;
+  if (reviewProgressLabel) reviewProgressLabel.textContent = `Analyzing… ${pct}%`;
 }
 
 // Cancel any running analysis and clear the rendered review.
@@ -2608,12 +2609,23 @@ const PUZZLE_SOLVE_BUDGET = 5_000_000;
 
 // The opponent's strongest reply: take an outright win if there is one, otherwise
 // the move that minimises your score — i.e. drags the loss out as long as
-// possible. Centre-most breaks ties so it plays the same way every time.
+// possible.
+//
+// Ties matter more than they look. Once a position is lost, *every* move loses at
+// the same depth, so the score alone says nothing and whatever the tiebreak likes
+// gets played — which used to mean the centre column while your winning square sat
+// there untouched. Against a fork that reads as the opponent not even trying. So
+// the first tiebreak is now "take one of the squares they are about to win on",
+// and centre-most only settles what's left, keeping it deterministic.
 function puzzleBestDefence(board) {
   const moves = legalMoves(board);
   if (moves.length === 0) return null;
+  const yourThreats = new Set(
+    winningSquares(board, P1).filter(([r, c]) => landingRow(board, c) === r).map(([, c]) => c)
+  );
   let best = null;
   let bestScore = Infinity;
+  let bestBlock = false;
   let bestCentre = Infinity;
   for (const c of moves) {
     const child = cloneBoard(board);
@@ -2621,9 +2633,15 @@ function puzzleBestDefence(board) {
     if (checkWin(child, landing.row, landing.col)) return c; // wins outright
     const solved = solveBoard(child, P1, { budget: PUZZLE_SOLVE_BUDGET });
     const score = solved ? solved.score : 0; // abort ⇒ treat as unknown, prefer centre
+    const blocks = yourThreats.has(c);
     const centre = Math.abs(3 - c);
-    if (score < bestScore || (score === bestScore && centre < bestCentre)) {
+    const better =
+      score < bestScore ||
+      (score === bestScore && blocks && !bestBlock) ||
+      (score === bestScore && blocks === bestBlock && centre < bestCentre);
+    if (better) {
       bestScore = score;
+      bestBlock = blocks;
       bestCentre = centre;
       best = c;
     }
@@ -2891,7 +2909,7 @@ function puzzleDrop(col) {
             const d = cellIn(puzzleBoardEl, wr, wc).querySelector('.disc');
             if (d) d.classList.add('win');
           });
-          puzzleFail('You left a line open and the defence took it.', 'Beaten to it');
+          puzzleFail('You left a line open and the defense took it.', 'Beaten to it');
           return;
         }
         puzzle.busy = false;
@@ -3227,6 +3245,44 @@ function tacticPlace(col, player, cb) {
   onceAnimation(disc, () => cb(row));
 }
 
+// What the teacher opens with when you found a move he wasn't going to suggest.
+const ALSO_WORKS = { taught: '', equal: 'That works too — same result.', slower: 'That wins as well, a step slower than mine.' };
+
+// Is `col` as good as the move being taught? 'equal' when the solver gives it the
+// same value, 'slower' when it still comes out on the same side of the result but
+// takes longer, null when it is genuinely worse. Scores are from your side and
+// count down as the win gets further away, so the sign is the outcome and the
+// magnitude is the speed.
+function judgeAlternative(drill, col) {
+  const values = drill.values;
+  if (!values) return null; // older data: fall back to "only the taught move"
+  const mine = values[col];
+  const best = values[drill.good[0]];
+  if (mine == null || best == null) return null;
+  if (mine >= best) return 'equal';
+  if (Math.sign(mine) === Math.sign(best)) return 'slower';
+  return null;
+}
+
+// Would dropping into `col` give the opponent a four on their very next move?
+function handsThemFour(col) {
+  const after = cloneBoard(tactic.board);
+  if (!dropDisc(after, col, P1)) return false;
+  return legalMoves(after).some((c) => {
+    const reply = cloneBoard(after);
+    const l = dropDisc(reply, c, P2);
+    return !!checkWin(reply, l.row, l.col);
+  });
+}
+
+// Threats the move just built, for a move the drill didn't anticipate.
+function newThreats(startGrid, board) {
+  const before = new Set(
+    winningSquares(decodePuzzleGrid(startGrid), P1).map(([r, c]) => `${r},${c}`)
+  );
+  return winningSquares(board, P1).filter(([r, c]) => !before.has(`${r},${c}`));
+}
+
 function tacticWrong(col, message) {
   sound.nope();
   haptic(14);
@@ -3249,7 +3305,7 @@ function tacticDrop(col) {
     const d = cloneBoard(tactic.board);
     const landing = dropDisc(d, col, P1);
     if (!checkWin(d, landing.row, landing.col)) {
-      tacticWrong(col, 'Not that one. One square on this board gives you four — find it.');
+      tacticWrong(col, 'Not that one. One square here gives you four.');
       return;
     }
     tactic.busy = true;
@@ -3259,31 +3315,45 @@ function tacticDrop(col) {
       cells?.forEach(([wr, wc]) => cellIn(tacticBoardEl, wr, wc).querySelector('.disc')?.classList.add('win'));
       sound.win();
       haptic([12, 40, 18]);
-      teacherSay('Four. That is the whole idea — the fork did the work, you only collected it.', 'pleased');
+      teacherSay('Four. The fork did the work. You only collected it.', 'pleased');
       drillSolved();
     });
     return;
   }
 
   const drill = t.drills[tactic.drill];
-  if (!drill.good.includes(col)) {
+  const taught = drill.good.includes(col);
+  // A different column can still be a fine move, and being told off for finding
+  // one would be teaching a column rather than an idea. The solver's verdict on
+  // every column ships with the drill, so judge what was played against the move
+  // being taught and only correct what is genuinely worse.
+  const verdict = taught ? 'taught' : judgeAlternative(drill, col);
+  if (!verdict) {
     tactic.wrong++;
-    tacticWrong(col, tactic.wrong >= 2 ? `${t.nudge} Tap Show me and I will point at it.` : t.nudge);
+    // The most useful correction is the concrete one: if that drop lets them
+    // finish next move, say so instead of repeating the lesson's nudge.
+    const gift = handsThemFour(col);
+    let msg = gift ? 'That lets them make four next move.' : t.nudge;
+    if (tactic.wrong >= 2) msg += ' Tap Show me and I will point.';
+    tacticWrong(col, msg);
     return;
   }
 
   tactic.busy = true;
   tacticPlace(col, P1, () => {
     if (tactic.gen !== gen) return;
-    // The squares the tactic is about, worked out and verified when the drill was
-    // generated — so the teacher points at exactly what he is talking about.
-    markCells(drill.show);
+    // For the taught move, the squares the tactic is about (worked out and
+    // verified when the drill was generated). For a different move that also
+    // works, whatever it actually built.
+    markCells(taught ? drill.show : newThreats(drill.grid, tactic.board));
     sound.aha();
     haptic([10, 30, 14]);
-    teacherSay(t.why, 'pleased');
+    teacherSay(ALSO_WORKS[verdict] ? `${ALSO_WORKS[verdict]} ${t.why}` : t.why, 'pleased');
 
     // Where the payoff is a forced finish, play it out rather than assert it.
-    if (drill.follow) {
+    // Only the taught move is known to force one; another winning move has to be
+    // taken at its word.
+    if (taught && drill.follow) {
       setTimeout(() => {
         if (tactic.gen !== gen) return;
         const reply = puzzleBestDefence(tactic.board);
@@ -3293,7 +3363,7 @@ function tacticDrop(col) {
           clearTacticMarks();
           tactic.phase = 'finish';
           tactic.busy = false;
-          teacherSay('Their best defence. It stops one of them. Now take the other — make your four.');
+          teacherSay('Their best defense stops one of them. Take the other.');
         });
       }, 900);
       return;
@@ -3361,7 +3431,7 @@ function tacticShowMe() {
   if (tactic.phase === 'drill') {
     const col = TACTICS[tactic.i].drills[tactic.drill].good[0];
     pointAtColumn(col);
-    teacherSay('Here. Look at what it does before you play it.');
+    teacherSay('Here. Look at what it does first.');
     return;
   }
   if (tactic.phase === 'finish') {

@@ -115,17 +115,17 @@ const uniqueSafe = (good) => (b, m, per) => sameSet(colsWhere(per, (v) => v >= 0
 const SPECS = [
   {
     id: 'centre',
-    name: 'Own the centre',
+    name: 'Own the center',
     idea: 'The middle column sits on more fours than any other square on the board.',
-    ask: 'Only one column keeps your win alive. Where do you play?',
-    why: 'The middle. Every line worth having runs through it.',
-    nudge: 'That gives the game back. Think about where the most fours meet.',
-    close: 'And that is the middle. Fight for it early and half of your fours are already half-built.',
+    ask: 'Only one column keeps your win. Which?',
+    why: 'The middle. Every line you want runs through it.',
+    nudge: 'That hands the game back. Where do the most fours meet?',
+    close: 'That is the middle. Take it early and your fours are already half-built.',
     range: [16, 26],
     lesson: [
-      { say: "Welcome. Before tactics, geometry. There are 69 different ways to make four in a row on this board — and 51 of them run through the middle column. Each outside column touches only 15.", board: 'empty', cols: [3] },
-      { say: "So the same disc is worth more in the middle than on the edge. Each of these two squares at the heart of the board sits on 13 possible fours. A corner sits on 3.", board: 'empty', marks: [[2, 3], [3, 3]] },
-      { say: "It decides whole games. From an empty board the opening move in the middle wins, and the same move in an outside column loses outright. Here, only the centre holds your win.", board: 'drill0' },
+      { say: 'Welcome. Geometry first. There are 69 ways to make four here. 51 of them run through the middle column.', board: 'empty', cols: [3] },
+      { say: 'The edges barely matter — 15 each. These two middle squares sit on 13 fours apiece. A corner sits on 3.', board: 'empty', marks: [[2, 3], [3, 3]] },
+      { say: 'So the middle decides games. Open there and you win. Open on the edge and you lose. Here, only the center holds it.', board: 'drill0' },
     ],
     // Keep the centre column open enough that the lesson's point is visible, and
     // never set a position where the centre simply completes a four — that drill
@@ -146,14 +146,14 @@ const SPECS = [
     name: 'Two threats at once',
     idea: 'One threat gets blocked. Two open threats in one move cannot both be stopped.',
     ask: 'Find the move that makes two threats at once.',
-    why: 'Two open winning squares. They block one, you take the other.',
-    nudge: 'That makes at most one threat — they simply block it and you are back where you started.',
-    close: 'The fork is the engine of this game. Every other idea I teach you is a way of building one.',
+    why: 'Two open winning squares. They block one. You take the other.',
+    nudge: 'That makes one threat at most. They simply block it.',
+    close: 'The fork is the engine of this game. Every other idea is a way to build one.',
     range: [14, 26],
     lesson: [
-      { say: "A threat is an empty square that would give you four. Hold that word — everything else is built on it. A single threat is polite: they just fill the square.", board: 'drill0' },
-      { say: "Two threats, both reachable, made by one disc — that is a fork, and it is how nearly every game is really won. They can answer one of them. Not both.", board: 'drill0after' },
-      { say: "Your turn. One move here makes two.", board: 'drill0' },
+      { say: 'A threat is an empty square that would give you four. One threat is polite. They just fill it.', board: 'drill0' },
+      { say: 'Two at once is a fork. They answer one. You take the other. That is how games are really won.', board: 'drill0after' },
+      { say: 'Your turn. One move here makes two.', board: 'drill0' },
     ],
     match(b) {
       if (colsWinningNow(b, P1).length) return null; // don't set a "find the win" drill
@@ -173,16 +173,16 @@ const SPECS = [
   {
     id: 'seven',
     name: 'The seven',
-    idea: 'One disc finishing two different lines — three along a row, three down a diagonal.',
-    ask: 'One move here builds a row and a diagonal at the same time. Find it.',
-    why: 'A row and a diagonal from the same disc. That shape is the seven.',
-    nudge: 'That points one way only. Look for the disc that finishes two different lines.',
-    close: 'Look for sevens in your own games. Once you know the shape, you will find it everywhere.',
+    idea: 'One disc finishing two lines — three along a row, three down a diagonal.',
+    ask: 'One move builds a row and a diagonal. Find it.',
+    why: 'A row and a diagonal from one disc. That is the seven.',
+    nudge: 'That points one way only. Find the disc that finishes two lines.',
+    close: 'Look for sevens in your own games. Once you know the shape, you see it everywhere.',
     range: [14, 26],
     lesson: [
-      { say: "The best disc on the board is one that belongs to two lines at once. Drawn out it looks like a 7: three along a row, three running down a diagonal, meeting at the same piece.", board: 'drill0' },
-      { say: "Look what it asks for. The row wants one square; the diagonal wants a different one. Two lines, one disc — a fork you can aim for from a long way off.", board: 'drill0after' },
-      { say: "Now find it: the one move here that starts both lines at once.", board: 'drill0' },
+      { say: 'The best disc belongs to two lines at once. Three along a row, three down a diagonal. The shape looks like a 7.', board: 'drill0' },
+      { say: 'Look what it asks for. One square for the row. A different one for the diagonal. Two lines, one disc.', board: 'drill0after' },
+      { say: 'Now find it. One move here starts both lines.', board: 'drill0' },
     ],
     match(b) {
       if (colsWinningNow(b, P1).length) return null;
@@ -202,16 +202,16 @@ const SPECS = [
   {
     id: 'tempo',
     name: 'Block and build',
-    idea: 'A forced block need not be a wasted move — block with a disc that threatens back.',
+    idea: 'A forced block need not be a wasted move. Block with a disc that threatens back.',
     ask: 'They have four next move. Deal with it.',
-    why: 'Forced, yes — but your block also builds. Now they are the ones answering you.',
-    nudge: 'They complete four next move. Everything except that block loses on the spot.',
-    close: 'Block, but never block emptily. A defence that threatens back is not a defence — it is an attack.',
+    why: 'Forced — but your block builds too. Now they must answer you.',
+    nudge: 'They complete four next move. Everything but that block loses.',
+    close: 'Never block emptily. A block that threatens back is an attack.',
     range: [14, 26],
     lesson: [
-      { say: "Now the other side of it. They are one move from four, and the square they need is marked. You have no choice: it has to be yours.", board: 'drill0', markOpp: 'open' },
-      { say: "But a forced move is still a move. This block also gives you a three of your own — so the next question is theirs to answer, not yours. That is tempo: how a defence turns into an attack.", board: 'drill0after' },
-      { say: "Block it. Then look at what your disc did on the way.", board: 'drill0' },
+      { say: 'Now the other side. They are one move from four. The square they need is marked. It has to be yours.', board: 'drill0', markOpp: 'open' },
+      { say: 'But a forced move can still build. This block makes a three of your own. Now they must answer you.', board: 'drill0after' },
+      { say: 'Block it. Then look at what your disc did on the way.', board: 'drill0' },
     ],
     match(b) {
       if (colsWinningNow(b, P1).length) return null;
@@ -233,17 +233,17 @@ const SPECS = [
     id: 'poison',
     name: 'Poisoned squares',
     idea: 'A disc under one of their winning squares lifts them straight onto it.',
-    ask: 'Most of these columns hand them the win. Find the one move that keeps you alive.',
-    why: 'Safe. The rest fill the square under a winning square of theirs — or lose a step later.',
-    nudge: 'Look at what sits directly above each landing square. A disc of yours underneath their winning square hands them the game.',
-    close: 'Before every drop, ask what square you are handing over. Two seconds of counting saves whole games.',
+    ask: 'Most of these columns hand them the win. Find the one that does not.',
+    why: 'Safe. The others lift them onto four, or lose a step later.',
+    nudge: 'Look above each landing square. Your disc under their win hands it to them.',
+    close: 'Before every drop, ask what square you are handing over. Two seconds. Whole games.',
     // Fuller boards: the lesson needs several of their winning squares sitting
     // one row above a landing square, which only happens when the board is deep.
     range: [24, 36],
     lesson: [
-      { say: "Before you look for your own move, find their winning squares — the empty ones that would give them four. These.", board: 'drill0', markOpp: 'all' },
-      { say: "Now count what a drop underneath one does. Your disc does not just sit there; it raises them onto the square above. Every column marked here is poisoned.", board: 'drill0', markPoison: true },
-      { say: "So most of this board is a trap. One move keeps you alive. Only one.", board: 'drill0' },
+      { say: 'Find their winning squares first. The empty ones that would give them four. These.', board: 'drill0', markOpp: 'all' },
+      { say: 'Now look underneath. Your disc lifts them onto the square above. Every marked column is poisoned.', board: 'drill0', markPoison: true },
+      { say: 'Most of this board is a trap. One move keeps you alive. Only one.', board: 'drill0' },
     ],
     match(b) {
       if (colsWinningNow(b, P1).length) return null;
@@ -273,15 +273,15 @@ const SPECS = [
     id: 'stack',
     name: 'Stack your threats',
     idea: 'Two of your winning squares in one column, one directly above the other.',
-    ask: 'Find the move that puts two of your winning squares in the same column, one above the other.',
-    why: 'Stacked. Block the low square and their own disc carries you up to the high one.',
-    nudge: 'Not that. Look for the column where two of your threats can sit on top of each other.',
-    close: 'Two threats in one column, and their own move carries you to the win. Nothing here is prettier.',
+    ask: 'Put two of your winning squares in one column, one above the other.',
+    why: 'Stacked. Block the low one and their own disc carries you to the high one.',
+    nudge: 'Not that. Find the column where your threats can sit on top of each other.',
+    close: 'Two threats in one column, and their own move loses it. Nothing here is prettier.',
     range: [14, 26],
     lesson: [
-      { say: "This is the prettiest idea in the game, and it wins games on its own. Put two of your winning squares in the same column, one directly on top of the other.", board: 'drill0' },
-      { say: "Count their options. They cannot block the low square without playing it — and that lifts you onto the high one. Block below, lose above. Leave it alone, and you simply take the low square.", board: 'drill0after' },
-      { say: "Find the move that stacks them.", board: 'drill0' },
+      { say: 'The prettiest idea in the game. Two of your winning squares in one column, one directly above the other.', board: 'drill0' },
+      { say: 'They cannot block the low one without playing it. That lifts you to the high one. Block below, lose above.', board: 'drill0after' },
+      { say: 'Find the move that stacks them.', board: 'drill0' },
     ],
     match(b) {
       if (colsWinningNow(b, P1).length) return null;
@@ -309,15 +309,15 @@ const SPECS = [
     id: 'parity',
     name: 'Odd rows are yours',
     idea: 'Rows fill in order, so a threat on the right row is the one that gets collected.',
-    ask: 'Two moves look alike here. Only the one whose threat lands on the right row wins. Find it.',
-    why: 'That one. Your winning square sits on an odd row, so the filling arrives in your favour.',
-    nudge: 'That threat sits on the wrong row — they get to fill that square, not you.',
-    close: 'Counting rows is dull, and it wins games. Start counting around move ten and you will feel it.',
+    ask: 'Two moves look alike. Only one lands on your row. Find it.',
+    why: 'That one. Your winning square is on an odd row, so it falls to you.',
+    nudge: 'Wrong row. They get to fill that square, not you.',
+    close: 'Counting rows is dull, and it wins games. Start counting around move ten.',
     range: [14, 26],
     lesson: [
-      { say: "Count the rows from the bottom: 1, 2, 3, 4, 5, 6. Discs stack in that order and never out of it, and the board holds 42 squares — an even number.", board: 'empty', rows: [5, 3, 1] },
-      { say: "That splits the board between you. You opened this game, so the odd rows — 1, 3 and 5, lit up here — tend to fall to you, and the even rows to your opponent.", board: 'empty', rows: [5, 3, 1] },
-      { say: "So when both sides run out of safe moves, whoever's threat sits on the right row is the one who gets to fill it. Here, two moves look alike and only one is on your row.", board: 'drill0' },
+      { say: 'Count the rows from the bottom: 1 to 6. Discs fill them in order. The board holds 42 squares — an even number.', board: 'empty', rows: [5, 3, 1] },
+      { say: 'So the rows split between you. You moved first, so the odd rows tend to fall to you. The even rows fall to them.', board: 'empty', rows: [5, 3, 1] },
+      { say: 'Here two moves look alike. Only one puts your threat on your row. Count. Do not guess.', board: 'drill0' },
     ],
     match(b) {
       if (colsWinningNow(b, P1).length) return null;
@@ -346,13 +346,13 @@ const SPECS = [
     idea: 'Everything you have learned, they can use. Take the double threat away a move early.',
     ask: 'They are one move from a double threat. Take it away.',
     why: 'Defused. The square their fork needed is yours.',
-    nudge: 'Too slow — they play the fork, and two open threats cannot both be blocked.',
-    close: 'That is the craft, then: build your own fork, and see theirs coming. Go and play.',
+    nudge: 'Too slow. They fork you, and two open threats cannot both be blocked.',
+    close: 'That is the craft: build your fork, and see theirs coming. Go and play.',
     range: [14, 26],
     lesson: [
-      { say: "Last idea, and it is the one that keeps you alive. Every tactic I have shown you, your opponent can play too. So before you choose, ask what their next move does.", board: 'drill0' },
-      { say: "If they reach the marked column they make two threats at once, and you have already seen how that ends. The move is not yours to find — it is theirs to lose.", board: 'drill0', markFork: true },
-      { say: "Take it away from them.", board: 'drill0' },
+      { say: 'Last idea, and it keeps you alive. Everything I taught you, they can play too. So ask what their next move does.', board: 'drill0' },
+      { say: 'If they reach the marked column they fork you. You know how that ends. It is their move to lose.', board: 'drill0', markFork: true },
+      { say: 'Take it away from them.', board: 'drill0' },
     ],
     match(b) {
       if (colsWinningNow(b, P1).length) return null;
@@ -421,20 +421,27 @@ function rebuild(spec, grid) {
   if (!m) return null;
   const per = analyse(b);
   if (!per || !spec.verify(b, m, per)) return null;
-  return makeDrill(b, grid, m);
+  return makeDrill(b, grid, m, per);
 }
 
 // The squares the teacher lights up once you have played the move: whatever the
 // pattern itself recorded (a fork's two open threats, a stack's pair) or, failing
 // that, simply what the move built. Computed here so the app never has to guess
 // which of the position's threats the lesson was about.
-function makeDrill(b, grid, m) {
+function makeDrill(b, grid, m, per) {
   const child = afterDrop(b, m.good[0], P1).child;
+  // The solver's verdict on every column, from your side: > 0 wins, 0 draws,
+  // < 0 loses, null = the column is full. The app judges what you actually
+  // played against this instead of only accepting the one column it was going
+  // to suggest — a move that comes to the same thing is not a mistake.
+  const values = [];
+  for (let c = 0; c < COLS; c++) values.push(per.has(c) ? per.get(c) : null);
   return {
     grid,
     good: m.good,
     follow: m.good.length === 1 && forcedFinish(b, m.good[0]),
     show: m.after || newSquares(b, child, P1),
+    values,
     poison: m.poison || null,
     fork: m.fork || null,
     discs: discCount(b),
@@ -467,7 +474,7 @@ for (const spec of SPECS) {
     const per = analyse(b);
     if (!per) continue;
     if (!spec.verify(b, m, per)) continue;
-    drills.push(makeDrill(b, key, m));
+    drills.push(makeDrill(b, key, m, per));
     console.error(`${spec.id}: ${drills.length}/${DRILLS_PER_TACTIC} (tried ${tried}, ${((Date.now() - t0) / 1000).toFixed(0)}s)`);
   }
   if (!drills.length) {
@@ -525,7 +532,8 @@ const blocks = results.map(({ spec, drills }) => {
     return `      { ${bits.join(', ')} },`;
   }).join('\n');
   const rows = drills.map((d) =>
-    `      { grid: ${q(d.grid)}, good: ${arr(d.good)}, follow: ${d.follow}, show: ${pairs(d.show)} },`).join('\n');
+    `      { grid: ${q(d.grid)}, good: ${arr(d.good)}, follow: ${d.follow},\n` +
+    `        show: ${pairs(d.show)}, values: [${d.values.map((v) => (v == null ? 'null' : v)).join(', ')}] },`).join('\n');
   return `  {
     id: ${q(spec.id)},
     name: ${q(spec.name)},
@@ -558,6 +566,9 @@ const out = `// AUTO-GENERATED by tools/gen_tactics.mjs — do not edit by hand.
 //            teacher lights up once you have played it — the very squares the
 //            tactic is about. 'follow' marks the drills where every reply leaves
 //            you an immediate four, so the app can let you play the win out.
+//            'values' is the solver's verdict on every column from your side
+//            (> 0 wins, 0 draws, < 0 loses, null = full), so the app can accept
+//            any move that comes to the same thing as the one being taught.
 // Every position here was generated and proven by the exact solver, and
 // tools/test_tactics.mjs re-proves all of it from scratch.
 export const TACTICS = [

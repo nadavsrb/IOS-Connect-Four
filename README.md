@@ -39,15 +39,16 @@ teacher walk you through the tactics that win games.</em></p>
 - 🎓 **Tactics** — the part that makes you *better*. Eight ideas that actually decide Connect Four
   games, taught by a **wise old teacher** who hovers above the board in his mortarboard and
   spectacles, talks you through each one, lights up the squares he's talking about and swings his
-  staff down to point when you're stuck: **Own the centre** (51 of the 69 possible fours run through
+  staff down to point when you're stuck: **Own the center** (51 of the 69 possible fours run through
   the middle column — 15 through each outside one), **Two threats at once** (the fork), **The seven**
   (one disc finishing a row *and* a diagonal), **Block and build** (tempo), **Poisoned squares**
   (never fill the square under their win), **Stack your threats** (two winning squares in one column
   — block below, lose above), **Odd rows are yours** (parity and zugzwang) and **Kill the fork early**
   (defence). Each tactic has a short lesson and **three positions to train on**, and every drill was
   **generated and proven by the exact solver**: the move you're asked for is the *only* move that
-  works, so a wrong answer is a real mistake and not an opinion. Where the payoff is a forced win you
-  **play it out** — make the fork, watch the best defence stop one threat, then take the other.
+  works — though if you find a move the solver rates just as highly, he says so rather than marking
+  you wrong. Where the payoff is a forced win you **play it out**: make the fork, watch the defence
+  block one threat, then take the other.
 - 📊 **Win-% eval bar + best move** — an optional bar (toggle **📊 Win odds** in-game) shows each
   player's chance to win, like a chess eval bar. In the opening/midgame it's a turn-aware engine
   estimate; from the game's second half on it becomes **exact**, solved by a bitboard solver
@@ -183,10 +184,10 @@ The puzzles in `js/puzzles.js` are produced offline by `tools/gen_puzzles.mjs` (
 solver) and re-verified from scratch by `tools/test_puzzles.mjs` — every puzzle is a legal position
 with a single, solver-proven forcing line.
 
-`tools/opening_values.mjs` is the small dev script behind the "Own the centre" lesson: it weak-solves
+`tools/opening_values.mjs` is the small dev script behind the "Own the center" lesson: it weak-solves
 each opening column with the same solver. Opening on the outside column is a **proven loss** for the
 player who plays it (685M nodes, ~25 minutes on this solver). The middle columns are out of reach
-from an empty board with the in-game transposition table, so the centre's value is quoted as the
+from an empty board with the in-game transposition table, so the center's value is quoted as the
 published result for the solved game rather than measured here.
 
 `js/tactics.js` works the same way, and the ordering matters: **the lessons are written by hand** in
@@ -194,8 +195,10 @@ published result for the solved game rather than measured here.
 does it stack two winning squares in one column?), and every candidate that matches is handed to the
 solver, which has to agree the tactical move is the *only* move that works — the only winning move
 for an attacking idea, the only non-losing one for a defensive idea. `tools/test_tactics.mjs`
-re-proves all of it from scratch (422 checks) and independently re-derives each tactic's shape, so a
-drill can't teach a move that doesn't work.
+re-proves all of it from scratch (470 checks) and independently re-derives each tactic's shape, so a
+drill can't teach a move that doesn't work. Each drill also ships the solver's verdict on **every**
+column, so the app can judge what you actually played against the move it was going to suggest — a
+move that comes to the same thing is praised, not corrected.
 
 There's also a browser smoke test (`tools/smoke_test.mjs`) that drives the real UI in
 Chromium at an iPhone viewport; it needs Playwright and a running local server.
