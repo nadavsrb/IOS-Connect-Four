@@ -5,7 +5,7 @@
 // serving the snapshot it captured on the first visit, so pushes never showed
 // up. Now we always try the network first, refresh the cache with what we get,
 // and only fall back to the cache when offline.
-const CACHE = 'connect-four-neon-v27';
+const CACHE = 'connect-four-neon-v28';
 const ASSETS = [
   './',
   './index.html',
@@ -50,10 +50,16 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(req)
       .then((res) => {
-        // Stash a fresh same-origin copy for offline use.
+        // Stash a fresh same-origin copy for offline use. The write is fire-and-
+        // forget AND must swallow its own failure: `cache.put` rejects when the
+        // origin's storage quota is full, and an unhandled rejection there would
+        // log an error on every single request from then on. Serving the response
+        // matters; refreshing the cache is a bonus.
         if (res && res.ok && res.type === 'basic') {
           const copy = res.clone();
-          caches.open(CACHE).then((cache) => cache.put(req, copy));
+          caches.open(CACHE)
+            .then((cache) => cache.put(req, copy))
+            .catch(() => {});
         }
         return res;
       })

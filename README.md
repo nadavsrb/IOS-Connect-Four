@@ -127,6 +127,10 @@ teacher walk you through the tactics that win games.</em></p>
 - ↶ **Undo**, a glowing **winning-line** animation through the four discs, and celebratory
   **confetti** on every win.
 - 📴 **Offline** — a service worker caches everything, so it plays with no connection.
+- 📱 **Portrait, on purpose** — the board is sized off the height of the screen, so turning the
+  phone sideways would shrink it to a third and push the buttons off the bottom. Rather than show
+  that, a landscape phone gets a *turn your phone upright* screen. Tablets and desktop windows,
+  which have the room, are left alone.
 
 ## Play it on your iPhone
 
@@ -151,7 +155,9 @@ The easiest way is to host it (free) with **GitHub Pages** and open the link in 
 ### Updates
 The app uses a **network-first** service worker, so whenever you push a change and
 GitHub Pages redeploys, your phone picks it up automatically — it fetches the latest
-files when online and reloads once if a newer version took over. (It still works
+files when online and reloads once if a newer version took over. If a deploy lands
+while you're mid-match, the reload waits until you're back on the menu rather than
+throwing the game away. (It still works
 offline by falling back to the cached copy.) If you ever want to force a clean reload,
 go to **Settings → Safari → Advanced → Website Data**, delete the site's entry, and
 reopen it.

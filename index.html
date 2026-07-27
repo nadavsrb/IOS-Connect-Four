@@ -577,6 +577,19 @@
     </div>
   </div>
 
+  <!-- Turned sideways on a phone there is no room: the board shrinks to a third of
+       its size and the controls fall off the bottom. The manifest asks for portrait,
+       but that is only honoured from the Home Screen — in a Safari tab this is the
+       only way to say so. Shown by CSS alone (short + landscape), never on a tablet
+       or a desktop window. -->
+  <div id="rotate-nudge" class="rotate-nudge">
+    <div class="rotate-card">
+      <span class="rotate-icon" aria-hidden="true"><i></i></span>
+      <p class="rotate-title">Turn your phone upright</p>
+      <p class="rotate-sub">Connect Four needs the tall side of the screen.</p>
+    </div>
+  </div>
+
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

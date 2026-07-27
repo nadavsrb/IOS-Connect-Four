@@ -59,6 +59,17 @@
 
 * { box-sizing: border-box; }
 
+/* The `hidden` attribute means "not rendered", and no layout rule may outrank it.
+   This has to be !important: the UA sheet's `[hidden] { display: none }` loses to
+   ANY author `display` declaration on cascade origin alone, whatever the
+   specificity. Without it, every new `display` rule is another chance to
+   resurrect a hidden element — which is exactly how the Replay-last chip
+   (`.chip { display: inline-flex }`) stayed on the menu with nothing to replay,
+   and how the exam answers, the pop toggle, the turn timer, the series line and
+   the review progress bar each ended up needing their own patch. One rule
+   replaces all of them and closes the class. */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   padding: 0;
@@ -702,7 +713,6 @@ body::before {
   color: var(--text-dim);
   padding-left: 4px;
 }
-.turn-timer[hidden] { display: none; }
 .turn-indicator.urgent .turn-timer { color: #ff5470; }
 .turn-indicator.urgent .turn-text { color: #ff5470; }
 #turn-timerbar {
@@ -715,7 +725,6 @@ body::before {
   transform-origin: left center;
   box-shadow: 0 0 8px 1px var(--turn-color, var(--p1));
 }
-#turn-timerbar[hidden] { display: none; }
 .turn-indicator.urgent #turn-timerbar { background: #ff5470; box-shadow: 0 0 8px 1px #ff5470; }
 
 .scoreboard {
@@ -934,7 +943,6 @@ body::before {
 .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* Pop-Out toggle + armed board */
-#btn-poptoggle[hidden] { display: none; }
 #btn-poptoggle.armed {
   color: #fff;
   border-color: color-mix(in srgb, var(--accent) 65%, transparent);
@@ -956,7 +964,6 @@ body::before {
   font-size: 0.8rem;
   color: var(--text-dim);
 }
-.series-line[hidden] { display: none; }
 .series-pips { display: inline-flex; gap: 6px; }
 #series-p2 { flex-direction: row-reverse; }
 .pip {
@@ -1331,7 +1338,6 @@ body::before {
 .review { display: flex; flex-direction: column; gap: 8px; }
 
 .review-progress { display: flex; align-items: center; gap: 8px; }
-.review-progress[hidden] { display: none; }
 .review-progress-label { color: var(--text-dim); font-size: 0.76rem; white-space: nowrap; }
 .review-progress-track {
   flex: 1;
@@ -1553,7 +1559,6 @@ body::before {
 .puzzles-bar { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; }
 .puzzles-count { text-align: center; color: var(--text-dim); font-size: 0.82rem; margin: 6px 0 0; }
 .btn-sm { padding: 7px 13px; font-size: 0.76rem; }
-#btn-pz-next-unsolved[hidden] { display: none; }
 
 /* Filter the ladder by idea. Scrolls sideways rather than wrapping, so the grid
    below it keeps its height whatever the theme does to the text. */
@@ -1571,7 +1576,10 @@ body::before {
 .puzzle-filter::-webkit-scrollbar { display: none; }
 .pz-filter-chip {
   flex: none;
-  padding: 5px 11px;
+  /* 26px tall was a thumb-sized miss waiting to happen; this brings the target to
+     ~34px without making the row tall enough to squeeze the grid below it. */
+  padding: 9px 13px;
+  min-height: 34px;
   border-radius: 999px;
   border: 1px solid var(--stroke);
   background: rgba(255, 255, 255, 0.05);
@@ -1632,7 +1640,20 @@ body::before {
 }
 .puzzle-cell:not(:disabled):active { transform: scale(0.95); }
 .puzzle-cell .pz-num { font-size: 1.35rem; font-weight: 800; line-height: 1; }
-.puzzle-cell .pz-tier { font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); }
+/* "GRANDMASTER" is the longest tier name and it overflowed the cell at the old
+   0.04em tracking — clipped mid-glyph, because the cell is `overflow: hidden`.
+   Tighter tracking fits it, and the ellipsis is the backstop for a player running
+   a larger system font. */
+.puzzle-cell .pz-tier {
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* How deep the forced win is — the most useful difficulty signal, and it was
    previously only visible after opening the puzzle. */
 .puzzle-cell .pz-win { font-size: 0.53rem; letter-spacing: 0.02em; color: var(--tier); opacity: 0.85; }
@@ -1863,10 +1884,9 @@ body::before {
 
 .tactic-controls { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 
-/* Exam: name the idea before you play it. `display` has to yield to [hidden] or
-   the attribute stops meaning anything. */
+/* Exam: name the idea before you play it. (The global `[hidden]` rule at the top
+   of the file is what lets this set `display` safely.) */
 .teach-choices { display: flex; flex-direction: column; gap: 8px; }
-.teach-choices[hidden] { display: none; }
 .teach-choice {
   padding: 10px 14px;
   border-radius: 12px;
@@ -2968,9 +2988,83 @@ body::before {
 }
 :root[data-theme="minimal"] .tactic-card { background: rgba(24, 32, 66, 0.04); }
 
+/* The tier and accent colours are tuned to glow on a dark board. Used as TEXT on
+   this theme's near-white page they wash out completely — "win in 3" was bright
+   yellow at 8px on #e7ecf6, and the weak-spot badge was amber on white. Darkening
+   the ink keeps the colour coding (each tier stays its own hue) and makes it
+   readable; the solid tier swatch at the top of each cell is untouched, so the
+   bright signal is still there where it works. */
+:root[data-theme="minimal"] .puzzle-cell .pz-win,
+:root[data-theme="minimal"] .tc-index {
+  filter: brightness(0.52) saturate(1.6);
+  opacity: 1;
+}
+:root[data-theme="minimal"] .tc-missed { color: #a35800; }
+
+/* ---------------- Turned sideways ---------------- */
+/* Portrait-only by design: the board is sized off the viewport height, so in
+   landscape on a phone it collapses to a third of its size and the controls fall
+   below the fold (measured 478px of content in a 390px viewport). The manifest's
+   `orientation: portrait` covers the Home-Screen app; a Safari tab ignores it, so
+   this is the only place left to say so.
+   Gated on BOTH landscape and a short viewport, so a tablet or a desktop window
+   — where there is genuinely room — never sees it. */
+.rotate-nudge { display: none; }
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .rotate-nudge {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    z-index: 200; /* above #fx (50) and everything it contains */
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    /* The same themed stack the page canvas uses (see the `html` rule), so this
+       reads as the app in every theme rather than a foreign black screen. */
+    background-color: var(--bg-floor);
+    background-image: var(--bg-layers);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+  }
+  .rotate-card { text-align: center; max-width: 380px; }
+  .rotate-title {
+    margin: 16px 0 6px;
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: var(--text);
+  }
+  .rotate-sub { margin: 0; font-size: 0.86rem; color: var(--text-dim); }
+  /* A phone outline that tips upright, so the instruction reads without the text. */
+  .rotate-icon {
+    display: inline-block;
+    width: 46px;
+    height: 74px;
+    border: 2.5px solid var(--text-dim);
+    border-radius: 9px;
+    position: relative;
+    animation: rotate-hint 2.6s ease-in-out infinite;
+  }
+  .rotate-icon i {
+    position: absolute;
+    left: 50%;
+    bottom: 5px;
+    width: 16px;
+    height: 2.5px;
+    border-radius: 2px;
+    background: var(--text-dim);
+    transform: translateX(-50%);
+  }
+}
+@keyframes rotate-hint {
+  0%, 30% { transform: rotate(-90deg); }
+  60%, 100% { transform: rotate(0deg); }
+}
+
 /* ---------------- Accessibility ---------------- */
 
 @media (prefers-reduced-motion: reduce) {
+  .rotate-icon { animation: none; }
   body::before { animation: none; }
   .screen { animation: none; }
   .disc.dropping { animation-duration: 0.18s; }

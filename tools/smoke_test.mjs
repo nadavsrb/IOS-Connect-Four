@@ -1033,6 +1033,43 @@ try {
     await page.locator('#puzzle-grid .puzzle-cell').first().evaluate((el) => el.classList.contains('is-solved')));
   ok('everything is still unlocked after solving', (await page.locator('#puzzle-grid .puzzle-cell:disabled').count()) === 0);
   await page.screenshot({ path: `${SHOTS}/12b-puzzles-solved.png` });
+
+  // Practising one idea has to STAY on that idea. "Next ›" used to walk the whole
+  // ladder, so solving a filtered puzzle handed you an unrelated position. Pick a
+  // filter whose puzzles are NOT adjacent, so the two behaviours differ visibly.
+  {
+    const chipCount = await page.locator('.pz-filter-chip').count();
+    let shown = [];
+    for (let c = 1; c < chipCount; c++) {
+      await page.locator('.pz-filter-chip').nth(c).click();
+      await wait(250);
+      const idx = await page.evaluate(() =>
+        [...document.querySelectorAll('#puzzle-grid .puzzle-cell')].map((el) => Number(el.dataset.i)));
+      if (idx.length >= 2 && idx[1] !== idx[0] + 1) { shown = idx; break; }
+    }
+    ok('a filter exists whose puzzles are not adjacent in the ladder', shown.length >= 2);
+    if (shown.length >= 2) {
+      const p = PUZZLES[shown[0]];
+      await page.locator('#puzzle-grid .puzzle-cell').first().click();
+      await wait(500);
+      for (let k = 0; k < p.line.length; k += 2) {
+        await pzDrop(p.line[k]);
+        await wait(1100); // their reply animates before the next move is legal
+      }
+      await wait(600);
+      ok(`the filtered puzzle ${shown[0] + 1} solves`,
+        /solved/i.test((await page.locator('#puzzle-status').textContent()) || ''));
+      await page.locator('#pz-next').click();
+      await wait(700);
+      ok(`Next stays inside the filter (puzzle ${shown[1] + 1}, not ${shown[0] + 2})`,
+        new RegExp(`Puzzle ${shown[1] + 1}(\\D|$)`).test(
+          (await page.locator('#puzzle-title').textContent()) || ''));
+      await page.locator('#screen-puzzle [data-nav="puzzles"]').click();
+      await wait(300);
+      await page.locator('.pz-filter-chip').first().click(); // leave the ladder unfiltered
+      await wait(250);
+    }
+  }
   await page.locator('#screen-puzzles [data-nav="menu"]').click();
   await wait(150);
 
@@ -1231,6 +1268,40 @@ try {
     (await page.locator('#teacher.is-talking').count()) === 0 &&
     (await page.locator('#teacher-say.is-typing').count()) === 0);
 
+  // --- One game counts once, however many times you rewatch it ---
+  // analyseReplay() reruns on every visit to the review screen, so the weakness
+  // tally used to grow each time — three viewings turned "missed 2×" into 6× and
+  // sent "Practise my weakest" after the wrong idea. The saved game here was
+  // played 2-player (which is never counted), so relabel it as a bot game.
+  {
+    await page.evaluate(() => {
+      localStorage.removeItem('c4.weakness.v1');
+      const g = JSON.parse(localStorage.getItem('c4.lastgame.v1') || 'null');
+      if (g) { g.mode = 'bot'; g.difficulty = 'medium'; localStorage.setItem('c4.lastgame.v1', JSON.stringify(g)); }
+    });
+    await page.reload({ waitUntil: 'networkidle' });
+    await wait(300);
+    const watchReview = async () => {
+      await page.locator('#btn-replay-last').click();
+      await wait(500);
+      for (let i = 0; i < 90; i++) {
+        if (await page.locator('#review-progress[hidden]').count()) break;
+        await wait(200);
+      }
+      await wait(300);
+      const w = JSON.parse(await page.evaluate(() => localStorage.getItem('c4.weakness.v1')) || 'null');
+      await page.locator('#screen-replay [data-nav="menu"]').click();
+      await wait(250);
+      return w;
+    };
+    const first = await watchReview();
+    const second = await watchReview();
+    ok('a reviewed bot game is counted', !!first && first.games === 1);
+    ok('rewatching the same game does not count it again',
+      !!second && second.games === 1 &&
+      JSON.stringify(second.counts) === JSON.stringify(first ? first.counts : {}));
+  }
+
   // --- Weak spots from your own games ---
   await page.evaluate(() => {
     localStorage.setItem('c4.weakness.v1', JSON.stringify({ counts: { fork: 4, poison: 2 }, games: 3 }));
@@ -1357,6 +1428,57 @@ try {
   ok(`the opponent of the timed-out player wins (seat ${timeoutWinner})`,
     statsAfter[timeoutWinner] === (statsBefore[timeoutWinner] || 0) + 1);
   await page.screenshot({ path: `${SHOTS}/07-timeout.png` });
+
+  // --- The `hidden` attribute has to mean hidden, on every screen ---
+  // An author `display` rule outranks the UA sheet's [hidden] on cascade origin
+  // alone, so any new `display:` is a chance to resurrect a hidden element. That
+  // is how the Replay-last chip sat on the menu with nothing to replay. One global
+  // rule fixes it; this walks the whole app and proves it stays fixed.
+  {
+    const shownHidden = [];
+    const screens = [
+      ['menu', null],
+      ['puzzles', '#btn-mode-puzzles'],
+      ['tactics', '#btn-mode-tactics'],
+      ['stats', '#btn-stats'],
+    ];
+    await goToMenu();
+    for (const [name, open] of screens) {
+      if (open) { await page.locator(open).click(); await wait(400); }
+      const bad = await page.evaluate(() => [...document.querySelectorAll('[hidden]')]
+        .filter((el) => getComputedStyle(el).display !== 'none')
+        .map((el) => el.id || el.className || el.tagName));
+      if (bad.length) shownHidden.push(`${name}: ${bad.join(', ')}`);
+      if (open) { await goToMenu(); await wait(200); }
+    }
+    ok('nothing marked hidden is rendered anywhere', shownHidden.length === 0);
+    if (shownHidden.length) console.log('    shown despite [hidden]:', shownHidden);
+  }
+
+  // --- Turned sideways, the app says so instead of showing a broken board ---
+  // Portrait-only by design (the board is sized off viewport height). In a Safari
+  // tab the manifest's `orientation: portrait` is ignored, so this is the guard.
+  {
+    const land = await context.newPage();
+    await land.setViewportSize({ width: 844, height: 390 });
+    await land.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
+    await wait(400);
+    const n = await land.evaluate(() => {
+      const el = document.querySelector('#rotate-nudge');
+      const cs = getComputedStyle(el);
+      const b = el.getBoundingClientRect();
+      return { display: cs.display, z: Number(cs.zIndex),
+        covers: Math.round(b.width) >= window.innerWidth && Math.round(b.height) >= window.innerHeight };
+    });
+    ok('a sideways phone gets the turn-upright screen', n.display !== 'none' && n.covers);
+    ok('and it sits above every other layer', n.z >= 200);
+    // Tall enough for a real layout (a tablet) must NOT be nagged.
+    await land.setViewportSize({ width: 1180, height: 820 });
+    await wait(250);
+    ok('a tablet in landscape is left alone',
+      (await land.evaluate(() => getComputedStyle(document.querySelector('#rotate-nudge')).display)) === 'none');
+    await land.close();
+  }
 
   ok('no console/page errors during run', consoleErrors.length === 0);
   if (consoleErrors.length) console.log('    errors:', consoleErrors.slice(0, 5));

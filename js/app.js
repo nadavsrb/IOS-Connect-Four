@@ -597,6 +597,16 @@ function loadLastGame() {
   }
 }
 
+// Set when a new service worker takes over while a game is being played, so the
+// reload that swaps in the new version waits for the menu instead of discarding
+// the match. See the registration block at the bottom of the file.
+let updatePending = false;
+function applyPendingUpdate() {
+  if (!updatePending) return;
+  updatePending = false;
+  window.location.reload();
+}
+
 // Bumped whenever the round is reset/undone; pending async move callbacks compare
 // against it and bail out if the game moved on (prevents phantom moves).
 let moveGen = 0;
@@ -1623,6 +1633,9 @@ function goMenu() {
   closeOverlay();
   updateReplayLastChip();
   showScreen('screen-menu', 'back');
+  // Nothing is at stake here, so this is where a deploy that landed mid-match
+  // gets to swap itself in.
+  applyPendingUpdate();
 }
 
 // ---------------------------------------------------------------- turn timer
@@ -2412,16 +2425,28 @@ function renderReviewMoments() {
   }
 }
 
-// Fold this game's named mistakes into the weakness store — once per completed
-// analysis, and only for your own moves against the bot (see js/stats.js for why
-// pass-and-play is left out).
+// Identity of a saved game, derived from the game itself so it works for saves
+// written before this existed: the move list plus who started and who won.
+const gameFingerprint = (d) =>
+  `${d.startingPlayer}:${d.winner}:${d.moves.map((m) => `${m.type === 'pop' ? 'p' : ''}${m.col}`).join('')}`;
+
+// Fold this game's named mistakes into the weakness store — once per GAME, and
+// only for your own moves against the bot (see js/stats.js for why pass-and-play
+// is left out).
+//
+// Once per game, not once per analysis: `analyseReplay()` runs on every visit to
+// the review screen, so without the fingerprint check, rewatching a replay counted
+// the same mistakes again and again — three viewings turned "missed 2×" into
+// "missed 6×" and pointed "Practise my weakest" at the wrong idea.
 function recordReviewWeakness() {
   if (!replay.review || !replay.data || replay.data.mode !== 'bot') return;
+  const id = gameFingerprint(replay.data);
+  if (weakness.countedGame === id) return;
   const ids = replay.review.moments
     .filter((m) => m.mover === P1)
     .map((m) => { const t = tacticMissedAt(m); return t && t.id; })
     .filter(Boolean);
-  weakness = recordMisses(weakness, ids);
+  weakness = { ...recordMisses(weakness, ids), countedGame: id };
   saveWeakness();
 }
 
@@ -2505,7 +2530,12 @@ function updateReplayControls() {
 }
 
 function enterReplay(data) {
-  if (!data || !data.moves || data.moves.length === 0) return;
+  // Everything below trusts this shape — `computeReplayBoards` iterates the moves
+  // and the caption reads the names — and it comes out of localStorage, which a
+  // half-written save or an older build can leave malformed. Refuse rather than
+  // throw on the way in.
+  if (!data || !Array.isArray(data.moves) || data.moves.length === 0) return;
+  if (!data.names || !data.colors || !data.startingPlayer) return;
   stopReplayPlay();
   clearHint();
   stopTurnTimer();
@@ -2682,15 +2712,19 @@ function renderWeaknessStats() {
   const section = $('#stat-weak-section');
   const line = $('#stat-weak-line');
   if (!wrap || !section) return;
-  const top = topWeaknesses(weakness, 4);
+  // Drop anything the course no longer teaches before deciding whether to show the
+  // panel — otherwise a store written by an older build shows the heading with no
+  // rows under it.
+  const top = topWeaknesses(weakness, 6)
+    .map((w) => ({ ...w, tactic: TACTICS.find((x) => x.id === w.id) }))
+    .filter((w) => w.tactic)
+    .slice(0, 4);
   section.hidden = top.length === 0;
   if (!top.length) return;
   const worst = top[0].missed;
   if (line) line.textContent = `over ${weakness.games} reviewed game${weakness.games === 1 ? '' : 's'}`;
   wrap.innerHTML = '';
-  for (const { id, missed } of top) {
-    const t = TACTICS.find((x) => x.id === id);
-    if (!t) continue;
+  for (const { tactic: t, missed } of top) {
     const row = document.createElement('div');
     row.className = 'diff-row';
     row.innerHTML =
@@ -2814,15 +2848,27 @@ function renderPuzzleFilter() {
 // actually wants to see.
 const puzzleNo = (i) => i + 1;
 
+// The ladder indices currently on show. Everything that walks the list — the grid
+// and the puzzle screen's "Next ›" — reads it, so filtering to one idea keeps you
+// inside that idea instead of dropping you back into the full ladder on Next.
+function puzzleView() {
+  if (!puzzleFilter) return PUZZLES.map((_, i) => i);
+  return PUZZLES.reduce((out, p, i) => {
+    if (puzzleIdeaOf(p) === puzzleFilter) out.push(i);
+    return out;
+  }, []);
+}
+
 // Every puzzle is playable from the start — the list is a menu, not a gate. It
 // shows what you've solved and, per cell, how deep the win is.
 function renderPuzzleList() {
   const solved = new Set(puzzleProgress.solved);
+  const view = new Set(puzzleView());
   puzzleGridEl.innerHTML = '';
   PUZZLES.forEach((p, i) => {
     // A filtered view still shows each puzzle's real position in the ladder —
     // "Puzzle 23" has to mean the same thing however you got there.
-    if (puzzleFilter && puzzleIdeaOf(p) !== puzzleFilter) return;
+    if (!view.has(i)) return;
     const isSolved = solved.has(p.id);
     const cell = document.createElement('button');
     cell.className = `puzzle-cell tier-${tierBucket(p.winIn)}`;
@@ -2987,7 +3033,17 @@ function clearPuzzleLoss() {
 }
 
 const retryPuzzle = () => enterPuzzle(puzzle.i);
-const nextPuzzle = () => { if (puzzle.i < PUZZLES.length - 1) enterPuzzle(puzzle.i + 1); };
+// The next puzzle in the list you came from, so practising one idea stays on that
+// idea. Returns null on the last one, which is also what hides the button.
+function nextPuzzleIndex() {
+  const view = puzzleView();
+  const at = view.indexOf(puzzle.i);
+  // Not in the current view (you filtered while a puzzle was open): fall back to
+  // the next one along the whole ladder rather than stranding you.
+  if (at < 0) return puzzle.i < PUZZLES.length - 1 ? puzzle.i + 1 : null;
+  return at < view.length - 1 ? view[at + 1] : null;
+}
+const nextPuzzle = () => { const n = nextPuzzleIndex(); if (n != null) enterPuzzle(n); };
 
 // Drop `player`'s disc into `col` on the puzzle board (animated), then cb(row).
 function puzzlePlace(col, player, cb) {
@@ -3022,7 +3078,7 @@ function onPuzzleSolved(winCells) {
   }
   setPuzzleStatus('Solved! 🎉', 'good');
   markPuzzleSolved(PUZZLES[puzzle.i].id);
-  pzNextBtn.hidden = puzzle.i >= PUZZLES.length - 1;
+  pzNextBtn.hidden = nextPuzzleIndex() == null;
   pzHintBtn.disabled = true;
 }
 
@@ -4418,6 +4474,10 @@ function wire() {
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (refreshing || !hadController) return;
       refreshing = true;
+      // A deploy can land mid-match, and there is no save-and-resume — reloading
+      // then would throw the game away. Wait for a moment when nothing is at
+      // stake; `applyPendingUpdate` is called on the way back to the menu.
+      if (game.active) { updatePending = true; return; }
       window.location.reload();
     });
     window.addEventListener('load', () => {
