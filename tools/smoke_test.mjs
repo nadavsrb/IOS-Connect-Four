@@ -81,6 +81,18 @@ const coversViewport = async (sel) => {
 // retry once if it didn't. (Polling for the disc instead of waiting doesn't work:
 // it is spawned when the drop STARTS, so it appears while the board is still
 // locked.) A retry on a full column is harmless — nothing lands either time.
+// How much of a progress track is actually painted, as a fraction of the track.
+// Measured, not read back off `style.width`: the tactics bar's fill was an
+// unstyled inline <span>, so JS set its width to "30%" and the browser painted
+// 0x0px — the bar read empty at every level, right up to 10 / 10 learned.
+const fillFraction = async (trackSel) => page.evaluate((sel) => {
+  const track = document.querySelector(sel);
+  const fill = track && track.querySelector('span');
+  if (!fill) return null;
+  const t = track.getBoundingClientRect(), f = fill.getBoundingClientRect();
+  return { frac: t.width > 0 ? f.width / t.width : null, h: f.height };
+}, trackSel);
+
 const dropAt = async (col, settle = 560) => {
   const before = await discCount();
   await page.locator(`#board .cell[data-col="${col}"]`).first().click();
@@ -1022,6 +1034,11 @@ try {
   ok('the list shows one solved', (await page.locator('#puzzle-grid .puzzle-cell.is-solved').count()) === 1);
   ok('the solved cell carries a tick', (await page.locator('#puzzle-grid .puzzle-cell.is-solved .pz-mark svg').count()) === 1);
   ok('the count reflects progress', /^1 \/ \d+ solved/.test((await page.locator('#puzzles-count').textContent()) || ''));
+  {
+    const f = await fillFraction('#screen-puzzles .puzzles-progress');
+    ok(`the puzzle progress bar paints its share (${f && (f.frac * 100).toFixed(1)}% of the track, ${f && f.h}px tall)`,
+      !!f && f.h > 0 && f.frac > 0 && f.frac < 0.2); // 1 of 56 solved
+  }
 
   // The solved marker is the list's whole job now, so prove it survives a reload.
   await page.reload({ waitUntil: 'networkidle' });
@@ -1259,6 +1276,14 @@ try {
   }
   ok('the learned tactic is marked in the list', (await page.locator('.tactic-card.is-learned').count()) === 1);
   ok('the count follows', /1 \/ \d+ learned/.test((await page.locator('#tactics-count').textContent()) || ''));
+  // …and so does the bar above it. This is the one that was broken: the fill span
+  // is shared markup but was styled by the PUZZLE bar's id, so it never painted.
+  {
+    const f = await fillFraction('#screen-tactics .puzzles-progress');
+    const want = 1 / TACTICS.length;
+    ok(`the tactics progress bar paints 1 of ${TACTICS.length} (${f && (f.frac * 100).toFixed(1)}%, ${f && f.h}px tall)`,
+      !!f && f.h > 0 && Math.abs(f.frac - want) < 0.03);
+  }
   // Leaving mid-sentence must stop him talking rather than leave a timer running.
   await page.locator('#tactic-list .tactic-card').nth(1).click();
   await wait(200);

@@ -1549,7 +1549,12 @@ body::before {
   overflow: hidden;
   margin: 8px 4px 0;
 }
-#puzzles-progress-fill {
+/* Styled by position in the shared track, NOT by id. Two screens use this bar
+   (puzzles and tactics) and the rule used to name `#puzzles-progress-fill` alone,
+   so the tactics one was an unstyled inline <span>: JS set its width, but width
+   does nothing to an inline box and there was no background to paint anyway. The
+   tactics bar therefore read empty at every level, including 10 / 10 learned. */
+.puzzles-progress > span {
   display: block;
   height: 100%;
   width: 0;
