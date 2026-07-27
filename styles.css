@@ -1343,7 +1343,8 @@ body::before {
 .review-clean { margin: 0; color: var(--text-dim); font-size: 0.78rem; text-align: center; width: 100%; }
 .review-chip {
   flex: none;
-  padding: 6px 11px;
+  padding: 5px 11px;
+  line-height: 1.25;
   border-radius: 999px;
   border: 1px solid var(--stroke);
   background: rgba(255, 255, 255, 0.06);
@@ -1639,6 +1640,10 @@ body::before {
   box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.8), 0 0 0 2px #ff3b30;
 }
 
+/* The idea behind a flagged move, and the way into its lesson. */
+.review-chip-idea { display: block; font-size: 0.62rem; font-weight: 700; opacity: 0.85; margin-top: 1px; }
+.review-learn { align-self: center; margin-top: 2px; }
+
 /* ---------------- Tactics ---------------- */
 /* A taught section rather than a played one: a list of ideas, and per idea a
    teacher who talks you through it and then sets you positions. */
@@ -1780,9 +1785,42 @@ body::before {
 
 .tactic-controls { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 
+/* Exam: name the idea before you play it. `display` has to yield to [hidden] or
+   the attribute stops meaning anything. */
+.teach-choices { display: flex; flex-direction: column; gap: 8px; }
+.teach-choices[hidden] { display: none; }
+.teach-choice {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--stroke);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.teach-choice:active { transform: scale(0.985); }
+.teach-choice.is-right { border-color: rgba(124, 255, 107, 0.7); background: rgba(124, 255, 107, 0.14); }
+.teach-choice.is-wrong { border-color: rgba(255, 90, 90, 0.7); background: rgba(255, 90, 90, 0.12); }
+.teach-choice:disabled { cursor: default; opacity: 0.85; }
+
+.exam-cta { margin-top: 2px; }
+
+/* A drill you solved without a wrong turn. */
+.teach-steps i.is-clean { background: #7cff6b; box-shadow: 0 0 7px rgba(124, 255, 107, 0.7); }
+
+/* A tactic the exam caught you out on. */
+.tactic-card.needs-review { --tier: #ffb020; border-color: rgba(255, 176, 32, 0.5); background: rgba(255, 176, 32, 0.09); }
+.tactic-card.needs-review .tc-mark { color: #ffb020; opacity: 1; }
+.tactic-card.needs-review .tc-idea { color: #ffcb62; }
+
 /* The board is one row of chrome taller here than in a game, so it gets its own
    height budget — otherwise the controls fall off the bottom of a small phone. */
 #tactic-board { width: max(200px, min(90vw, 430px, calc((100dvh - 345px) * 1.1667))); }
+/* While the exam's three answers are on screen the board takes less room. */
+#screen-tactic.is-choosing #tactic-board { width: max(160px, min(76vw, 330px, calc((100dvh - 500px) * 1.1667))); }
 
 /* Squares the teacher is pointing at: a threat, a trap, a winning square. */
 .board .cell.teach-mark .socket {

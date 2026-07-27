@@ -783,13 +783,25 @@ try {
   await page.screenshot({ path: `${SHOTS}/11b-review.png` });
 
   // Scrubbing the graph seeks the replay.
+  await page.locator('#review-graph').scrollIntoViewIfNeeded();
+  await wait(150);
   const gbox = await page.locator('#review-graph').boundingBox();
-  await page.mouse.move(gbox.x + gbox.width * 0.45, gbox.y + gbox.height / 2);
+  const hitPoint = [gbox.x + gbox.width * 0.45, gbox.y + gbox.height / 2];
+  const onTop = await page.evaluate(([x, y]) => {
+    const el = document.elementFromPoint(x, y);
+    return el ? `${el.tagName}#${el.id}` : 'nothing';
+  }, hitPoint);
+  await page.mouse.move(hitPoint[0], hitPoint[1]);
   await page.mouse.down();
   await page.mouse.up();
   await wait(300);
   const scrubbed = await page.locator('#replay-counter').innerText();
-  ok('scrubbing the curve seeks the replay', /Move [1-6] \/ 7/.test(scrubbed));
+  const total = Number((scrubbed.match(/\/ (\d+)/) || [])[1] || 0);
+  const atMove = Number((scrubbed.match(/Move (\d+)/) || [])[1] || -1);
+  // A tap at 45% across the curve should land somewhere in the middle of the game,
+  // whatever length the game turned out to be.
+  ok(`scrubbing the curve seeks the replay (${scrubbed}, box y=${Math.round(gbox.y)} h=${Math.round(gbox.height)}, hit ${onTop})`,
+    total > 0 && atMove > 0 && atMove < total);
 
   // Tapping a flagged move jumps to just before it and shows the better move.
   if ((await page.locator('.review-chip').count()) > 0) {
@@ -797,6 +809,34 @@ try {
     await wait(400);
     ok('tapping a flagged move suggests what to play instead',
       (await page.locator('#replay-board .disc.ghost').count()) === 1);
+    // Where the mistake has a name the teacher covers, the lesson is one tap away.
+    const named = await page.locator('.review-chip-idea').count();
+    if (named > 0) {
+      // Find a chip that names an idea and open it.
+      const idea = page.locator('.review-chip', { has: page.locator('.review-chip-idea') }).first();
+      await idea.click();
+      await wait(400);
+      ok('a named mistake offers its lesson', await page.locator('#review-learn').isVisible());
+      const wanted = ((await page.locator('#review-learn').textContent()) || '').replace(/^Learn this: | ›$/g, '');
+      await page.locator('#review-learn').click();
+      await wait(500);
+      ok('and it opens that tactic',
+        (await page.locator('#screen-tactic').evaluate((el) => el.classList.contains('is-active'))) &&
+        (await page.locator('#tactic-title').textContent()) === wanted);
+      await page.screenshot({ path: `${SHOTS}/11c-review-to-lesson.png` });
+      await page.locator('#screen-tactic [data-nav="tactics"]').click();
+      await wait(250);
+      await page.locator('#screen-tactics [data-nav="menu"]').click();
+      await wait(250);
+      await page.locator('#btn-replay-last').click(); // back into the review for the rest of the run
+      await wait(500);
+      for (let i = 0; i < 90; i++) {
+        if (await page.locator('#review-progress[hidden]').count()) break;
+        await wait(200);
+      }
+    } else {
+      ok('a named mistake offers its lesson (nothing recognisable in this game)', true);
+    }
   } else {
     ok('tapping a flagged move suggests what to play instead (no blunder in this game)', true);
   }
@@ -999,8 +1039,22 @@ try {
   ok('the tactic screen fits the viewport with no scroll', tacticFits);
   await page.screenshot({ path: `${SHOTS}/13-tactic-lesson.png` });
 
-  // Walk to the drills.
-  for (let i = 1; i < tac.lesson.length; i++) { await page.locator('#tc-next').click(); await wait(250); }
+  // A lesson page with `play` demonstrates the idea instead of describing it.
+  const demoPage = tac.lesson.findIndex((p) => p.play && p.play.length > 1);
+  if (demoPage > 0) {
+    for (let i = 1; i <= demoPage; i++) { await page.locator('#tc-next').click(); await wait(250); }
+    const startDiscs = [...tac.lesson[demoPage].grid].filter((ch) => ch !== '0').length;
+    ok('the demo starts from the position before the move',
+      (await page.locator('#tactic-board .disc').count()) >= startDiscs - 1);
+    await wait(3400);
+    ok('the demo plays the idea out',
+      (await page.locator('#tactic-board .disc').count()) === startDiscs + tac.lesson[demoPage].play.length);
+    ok('the demo ends on a four', (await page.locator('#tactic-board .disc.win').count()) === 4);
+    ok('and offers to run it again', (await page.locator('#tc-show-label').textContent()) === 'Again');
+    for (let i = demoPage + 1; i < tac.lesson.length; i++) { await page.locator('#tc-next').click(); await wait(250); }
+  } else {
+    for (let i = 1; i < tac.lesson.length; i++) { await page.locator('#tc-next').click(); await wait(250); }
+  }
   ok('the last lesson page offers the drills', (await page.locator('#tc-next-label').textContent()) === 'Try it');
   await page.locator('#tc-next').click();
   await wait(400);
@@ -1033,13 +1087,49 @@ try {
   ok('a solved drill offers the next one', await page.locator('#tc-next').isVisible());
   await page.screenshot({ path: `${SHOTS}/13c-tactic-drill.png` });
 
-  // Finish the rest of the drills, playing the win out where the drill allows it.
+  // Retry puts the drill back exactly as it started.
+  await page.locator('#tc-next').click();
+  await wait(400);
+  const d2Preset = [...tac.drills[1].grid].filter((ch) => ch !== '0').length;
+  const d2Bad = [0, 1, 2, 3, 4, 5, 6].find((c) => c !== tac.drills[1].good[0] && tac.drills[1].grid[c] === '0');
+  await page.locator(`#tactic-board .cell[data-col="${d2Bad}"]`).first().click();
+  await wait(400);
+  ok('a wrong answer offers Retry', await page.locator('#tc-retry').isVisible());
+  await page.locator('#tc-retry').click();
+  await wait(400);
+  ok('Retry restores the starting position', (await tDiscs()) === d2Preset);
+
+  // Play a move that keeps the whole position, however many drills are left, and
+  // carry the convert drill through to the four.
+  const finishAnyFour = async (cap = 8) => {
+    for (let step = 0; step < cap; step++) {
+      const n = await tDiscs();
+      for (const c of [3, 2, 4, 1, 5, 0, 6]) {
+        await page.locator(`#tactic-board .cell[data-col="${c}"]`).first().click();
+        await wait(700);
+        if ((await tDiscs()) > n) break;
+      }
+      if (await page.locator('#tactic-board .disc.win').count()) return true;
+      await wait(800); // their reply
+    }
+    return (await page.locator('#tactic-board .disc.win').count()) > 0;
+  };
+
   for (let k = 1; k < tac.drills.length; k++) {
-    await page.locator('#tc-next').click();
-    await wait(400);
-    await page.locator(`#tactic-board .cell[data-col="${tac.drills[k].good[0]}"]`).first().click();
+    const d = tac.drills[k];
+    if (k > 1) { await page.locator('#tc-next').click(); await wait(400); }
+    if (d.convert) {
+      ok(`drill ${k + 1} is the convert drill`, d.winIn >= 2);
+      await page.locator('#teacher-bubble').click(); // he types; skip to the end of the line
+      await wait(200);
+      ok('a convert drill says how many moves it should take',
+        new RegExp(`${d.winIn} moves`).test((await page.locator('#teacher-say').textContent()) || ''));
+      ok('the convert drill can be carried to a four', await finishAnyFour());
+      continue;
+    }
+    await page.locator(`#tactic-board .cell[data-col="${d.good[0]}"]`).first().click();
     await wait(1000);
-    if (tac.drills[k].follow) {
+    if (d.follow) {
       await wait(1600); // their defence lands, then you finish it
       for (const c of [0, 1, 2, 3, 4, 5, 6]) {
         const n = await tDiscs();
@@ -1072,6 +1162,56 @@ try {
   ok('walking out mid-sentence stops the teacher',
     (await page.locator('#teacher.is-talking').count()) === 0 &&
     (await page.locator('#teacher-say.is-typing').count()) === 0);
+
+  // --- The exam: name the idea, then play it ---
+  await page.evaluate(() => localStorage.setItem('c4.tactics.v1', JSON.stringify(
+    { learned: ['centre', 'fork', 'seven', 'tempo'], review: [], examBest: 0, at: null })));
+  await page.reload({ waitUntil: 'networkidle' });
+  await wait(300);
+  await page.locator('#btn-mode-tactics').click();
+  await wait(250);
+  ok('the exam is offered once a few tactics are learned', await page.locator('#btn-tactic-exam').isVisible());
+  await page.locator('#btn-tactic-exam').click();
+  await wait(600);
+  ok('the exam asks you to name the idea', (await page.locator('.teach-choice').count()) === 3);
+  ok('the exam board still fits with the answers up', await page.evaluate(() => {
+    const b = document.querySelector('#tactic-board').getBoundingClientRect();
+    return b.bottom <= window.innerHeight + 1 &&
+      document.documentElement.scrollHeight <= window.innerHeight + 1;
+  }));
+  await page.screenshot({ path: `${SHOTS}/13e-exam.png` });
+  await page.locator('.teach-choice').first().click();
+  await wait(2100);
+  ok('answering marks the right one', (await page.locator('.teach-choice.is-right').count()) === 1);
+  ok('the answers step aside so you can play', await page.locator('#tactic-choices').isHidden());
+  // Play the question out, then walk the rest of the exam.
+  for (let q = 0; q < 6; q++) {
+    const n0 = await page.locator('#tactic-board .disc').count();
+    for (const c of [3, 2, 4, 1, 5, 0, 6]) {
+      await page.locator(`#tactic-board .cell[data-col="${c}"]`).first().click();
+      await wait(600);
+      if ((await page.locator('#tactic-board .disc').count()) > n0) break;
+    }
+    if (!(await page.locator('#tc-next').isVisible())) break;
+    const label = (await page.locator('#tc-next-label').textContent()) || '';
+    await page.locator('#tc-next').click();
+    await wait(800);
+    if (label === 'See how you did') break;
+    if (await page.locator('.teach-choice').first().isVisible().catch(() => false)) {
+      await page.locator('.teach-choice').first().click();
+      await wait(2000);
+    }
+  }
+  ok('the exam ends with a score', /\d out of \d/.test((await page.locator('#teacher-say').textContent()) || ''));
+  const examSaved = JSON.parse((await page.evaluate(() => localStorage.getItem('c4.tactics.v1'))) || '{}');
+  ok('the exam result is saved', typeof examSaved.examBest === 'number');
+  ok('missed ideas are marked for review', Array.isArray(examSaved.review));
+  await page.screenshot({ path: `${SHOTS}/13f-exam-end.png` });
+  await page.locator('#tc-next').click();
+  await wait(300);
+  ok('back on the list, anything missed is flagged',
+    (await page.locator('.tactic-card.needs-review').count()) === (examSaved.review || []).length);
+
   await page.locator('#screen-tactics [data-nav="menu"]').click();
   await wait(150);
 

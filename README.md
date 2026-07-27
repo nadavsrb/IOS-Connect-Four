@@ -36,19 +36,27 @@ teacher walk you through the tactics that win games.</em></p>
   list marks the ones you've solved, with progress saved on-device. Every puzzle was **generated and proven correct by the bitboard solver** offline
   (see `tools/gen_puzzles.mjs` / `tools/test_puzzles.mjs`): the solutions are exact, the advertised
   *win in N* matches the solver's mate distance, and the opponent always plays a true best defence.
-- 🎓 **Tactics** — the part that makes you *better*. Eight ideas that actually decide Connect Four
+- 🎓 **Tactics** — the part that makes you *better*. Ten ideas that actually decide Connect Four
   games, taught by a **wise old teacher** who hovers above the board in his mortarboard and
-  spectacles, talks you through each one, lights up the squares he's talking about and swings his
-  staff down to point when you're stuck: **Own the center** (51 of the 69 possible fours run through
-  the middle column — 15 through each outside one), **Two threats at once** (the fork), **The seven**
-  (one disc finishing a row *and* a diagonal), **Block and build** (tempo), **Poisoned squares**
-  (never fill the square under their win), **Stack your threats** (two winning squares in one column
-  — block below, lose above), **Odd rows are yours** (parity and zugzwang) and **Kill the fork early**
-  (defence). Each tactic has a short lesson and **three positions to train on**, and every drill was
-  **generated and proven by the exact solver**: the move you're asked for is the *only* move that
-  works — though if you find a move the solver rates just as highly, he says so rather than marking
-  you wrong. Where the payoff is a forced win you **play it out**: make the fork, watch the defence
-  block one threat, then take the other.
+  spectacles: **Own the center** (51 of the 69 possible fours run through the middle column — 15
+  through each outside one), **Two threats at once** (the fork), **The seven** (one disc finishing a
+  row *and* a diagonal), **Block and build** (tempo), **Poisoned squares**, **Stack your threats**,
+  **Odd rows are yours** (parity), **Kill the fork early**, **Sit above their threat** (make theirs
+  unplayable) and **Even rows, second player** (Claimeven).
+  He doesn't just describe an idea — he **plays it out in front of you**: your disc drops, the
+  threats light up, their best defense blocks one and your four lands. Then come the drills: three
+  positions per tactic, ordered from plain to buried, and a final **convert drill** where you carry
+  the idea all the way to four in a row against a defense solved live. Every drill was **generated
+  and proven by the exact solver** — the move you're asked for is the only move that works, though
+  if you find one the solver rates just as highly he says so rather than marking you wrong, and when
+  you do go wrong he tells you what *your* move did ("that lets them make four next move") instead of
+  repeating himself.
+- 🎓 **Final exam** — once a few tactics are learned, six mixed positions ask the harder question:
+  **which idea is this?** Name it from three choices, then play it. Anything you fumble is flagged
+  **needs review** on the list, so the ticks keep meaning something.
+- 🔎 **The lessons find you** — the game review already knows *that* a move cost you the game; now it
+  knows *what* you missed. Blunder chips read "Move 12 · Player 2 −48% · **missed: two threats at
+  once**", and one tap opens that lesson. The idea arrives at the only moment anyone wants it.
 - 📊 **Win-% eval bar + best move** — an optional bar (toggle **📊 Win odds** in-game) shows each
   player's chance to win, like a chess eval bar. In the opening/midgame it's a turn-aware engine
   estimate; from the game's second half on it becomes **exact**, solved by a bitboard solver
@@ -162,6 +170,8 @@ js/stats.js           Pure stats aggregation (totals, per-difficulty, streaks)
 js/review.js          Pure game review (blunder/mistake flags + accuracy scores)
 js/puzzles.js         Puzzle set (solver-generated static data; see tools/gen_puzzles.mjs)
 js/tactics.js         Tactics curriculum — lessons + solver-proven drills (see tools/gen_tactics.mjs)
+js/patterns.js        The tactical shapes themselves (fork, stack, poison, …) — shared by the
+                      generator, its test and the review's "you missed a fork" tagging
 js/app.js             UI controller: rendering, sound, haptics, scoreboard, persistence
 manifest.webmanifest  PWA metadata (name, icons, standalone display)
 service-worker.js     Offline caching
@@ -195,7 +205,7 @@ published result for the solved game rather than measured here.
 does it stack two winning squares in one column?), and every candidate that matches is handed to the
 solver, which has to agree the tactical move is the *only* move that works — the only winning move
 for an attacking idea, the only non-losing one for a defensive idea. `tools/test_tactics.mjs`
-re-proves all of it from scratch (470 checks) and independently re-derives each tactic's shape, so a
+re-proves all of it from scratch (724 checks) and independently re-derives each tactic's shape, so a
 drill can't teach a move that doesn't work. Each drill also ships the solver's verdict on **every**
 column, so the app can judge what you actually played against the move it was going to suggest — a
 move that comes to the same thing is praised, not corrected.

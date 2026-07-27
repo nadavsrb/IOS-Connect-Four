@@ -258,6 +258,8 @@
         </svg>
         <p class="review-summary" id="review-summary"></p>
         <div class="review-moments" id="review-moments"></div>
+        <!-- Appears when the mistake you tapped has a name the teacher covers. -->
+        <button id="review-learn" class="btn btn-ghost btn-sm review-learn" hidden></button>
       </div>
 
       <div class="eval is-on" id="replay-eval" aria-label="Win chance">
@@ -393,6 +395,10 @@
       <p class="puzzles-count" id="tactics-count">0 / 8 learned</p>
 
       <div class="tactic-list" id="tactic-list" role="list" aria-label="Tactics"></div>
+
+      <button id="btn-tactic-exam" class="btn btn-primary btn-wide exam-cta" hidden>
+        <span class="ico" data-icon="cap"></span> <span class="exam-label">Final exam — which idea is this?</span>
+      </button>
     </section>
 
     <!-- ================= TACTIC (lesson + drills) ================= -->
@@ -439,12 +445,16 @@
 
       <div class="teach-steps" id="tactic-steps" aria-hidden="true"></div>
 
+      <!-- Exam only: name the idea before you play it. -->
+      <div class="teach-choices" id="tactic-choices" hidden role="group" aria-label="Which idea is this?"></div>
+
       <div class="board-wrap">
         <div id="tactic-board" class="board" role="grid" aria-label="Tactic board"></div>
       </div>
 
       <div class="tactic-controls">
-        <button id="tc-show" class="btn btn-ghost"><span class="ico" data-icon="bulb"></span> Show me</button>
+        <button id="tc-retry" class="btn btn-ghost" hidden><span class="ico" data-icon="restart"></span> Retry</button>
+        <button id="tc-show" class="btn btn-ghost"><span class="ico" data-icon="bulb"></span> <span id="tc-show-label">Show me</span></button>
         <button id="tc-next" class="btn btn-primary"><span id="tc-next-label">Next</span> <span class="ico" data-icon="play"></span></button>
       </div>
 

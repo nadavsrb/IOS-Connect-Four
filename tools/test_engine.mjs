@@ -20,9 +20,14 @@ import {
   winningSquares,
   other,
 } from '../js/engine.js';
+import {
+  forkCols, poisonedCols, colsWinningNow, openThreats, handsThemFour, bestDefence, missedTactic,
+} from '../js/patterns.js';
 import { chooseMove, choosePopoutMove, popoutMoves, applyPopoutMove, winChance, __test } from '../js/bot.js';
 import { solveBoard } from '../js/solver.js';
 import { emptyHistory, recordGame, summarize, winRate, MAX_HISTORY } from '../js/stats.js';
+
+const same = (a, b) => a.length === b.length && [...a].sort().every((v, i) => v === [...b].sort()[i]);
 
 let passed = 0;
 let failed = 0;
@@ -158,6 +163,54 @@ console.log('Engine: landing rows and threat squares');
   ok('a gap in a row is a winning square', sq.some(([r, c]) => r === ROWS - 1 && c === 2));
   const reachable = sq.filter(([r, c]) => landingRow(b, c) === r);
   ok('and it is reachable right now', reachable.some(([, c]) => c === 2));
+}
+
+console.log('Patterns: the shapes the Tactics section teaches');
+{
+  // Bottom row X X _ X: dropping into the gap makes four, so it is a winning
+  // square, and there is no fork available yet.
+  const b = createBoard();
+  for (const c of [0, 1, 3]) dropDisc(b, c, P1);
+  ok('an immediate four is spotted', colsWinningNow(b, P1).includes(2));
+  ok('missedTactic says nothing when you take the win', missedTactic(b, P1, 2) === null);
+}
+{
+  // Two of yours in the middle of the bottom row: playing the centre leaves a
+  // three with both ends open — two reachable threats at once.
+  const b = createBoard();
+  for (const c of [2, 4]) dropDisc(b, c, P1);
+  for (const c of [0, 6]) dropDisc(b, c, P2);
+  ok('the fork column is found', same(forkCols(b, P1), [3]));
+  ok('a missed fork is named', missedTactic(b, P1, 0) === 'fork');
+  ok('taking the fork is not a mistake', missedTactic(b, P1, 3) !== 'fork');
+}
+{
+  // They have three on the bottom row with an open end: that square is poison to
+  // fill under, and ignoring it is a missed block.
+  const b = createBoard();
+  for (const c of [1, 2, 3]) dropDisc(b, c, P2);
+  dropDisc(b, 6, P1);
+  ok('their open threat makes any other move a tempo miss', missedTactic(b, P1, 6) === 'tempo');
+  ok('blocking it is not flagged', missedTactic(b, P1, 4) !== 'tempo');
+  ok('the block column is their winning square', openThreats(b, P2).some(([, c]) => c === 4 || c === 0));
+}
+{
+  // A column where dropping lifts them onto four is poisoned.
+  const b = createBoard();
+  for (const c of [1, 2, 3]) dropDisc(b, c, P2);   // bottom row _ O O O _
+  for (const c of [1, 2, 3]) dropDisc(b, c, P1);   // second row X X X, so row 2 is theirs to take
+  for (const c of [1, 2, 3]) dropDisc(b, c, P2);
+  ok('a poisoned column is one that lifts them onto a four',
+    poisonedCols(b, P1).every((c) => handsThemFour(b, c, P1)));
+}
+{
+  // bestDefence must prefer taking a reachable threat when every move scores the
+  // same — which is exactly what happens in a position that is already lost.
+  const b = createBoard();
+  for (const c of [1, 2, 3]) dropDisc(b, c, P1); // open three: cols 0 and 4 both win
+  const threat = openThreats(b, P1).map(([, c]) => c);
+  const pick = bestDefence(b, P2, () => 0); // a flat score: only the tiebreak decides
+  ok('a flat score still blocks rather than drifting to the middle', threat.includes(pick));
 }
 
 console.log('Bot: always returns a legal move (all difficulties)');

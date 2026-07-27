@@ -14,6 +14,10 @@ import {
   P1, P2, ROWS, COLS, EMPTY,
   createBoard, cloneBoard, dropDisc, checkWin, legalMoves, landingRow, winningSquares, other,
 } from '../js/engine.js';
+import {
+  playableNow, openThreats, afterDrop, colsWinningNow, newSquares, threatDirs,
+  forkCols, stackCols, sevenCols, poisonedCols, aboveCols, bestDefence,
+} from '../js/patterns.js';
 import { solveBoard } from '../js/solver.js';
 import { writeFileSync } from 'node:fs';
 
@@ -22,11 +26,6 @@ const solve = (b, p) => solveBoard(b, p, { budget: BUDGET });
 
 const gridStr = (b) => { let s = ''; for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) s += String(b[r][c]); return s; };
 const discCount = (b) => gridStr(b).split('').filter((c) => c !== '0').length;
-const playableNow = (b, r, c) => landingRow(b, c) === r;
-const openThreats = (b, p) => winningSquares(b, p).filter(([r, c]) => playableNow(b, r, c));
-const afterDrop = (b, col, p) => { const child = cloneBoard(b); const l = dropDisc(child, col, p); return l ? { child, ...l } : null; };
-const winsNow = (b, col, p) => { const d = afterDrop(b, col, p); return !!(d && checkWin(d.child, d.row, d.col)); };
-const colsWinningNow = (b, p) => legalMoves(b).filter((c) => winsNow(b, c, p));
 
 const EMPTY_GRID = '0'.repeat(ROWS * COLS);
 const decode = (grid) => {
@@ -35,10 +34,15 @@ const decode = (grid) => {
   return b;
 };
 
-// Threats that exist in `after` but not in `before` — i.e. what the move built.
-function newSquares(before, after, p) {
-  const had = new Set(winningSquares(before, p).map(([r, c]) => `${r},${c}`));
-  return winningSquares(after, p).filter(([r, c]) => !had.has(`${r},${c}`));
+// Swap the colours of a position. Used by the Claimeven lesson, which is about
+// being the *second* player: generate a position with the second player to move,
+// then relabel so that player is red — you are always red in the app.
+function flipColours(b) {
+  const out = createBoard();
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) out[r][c] = b[r][c] === EMPTY ? EMPTY : other(b[r][c]);
+  }
+  return out;
 }
 
 // --- The solver's verdict on every legal move, from P1's point of view. -------
@@ -59,40 +63,15 @@ function analyse(b) {
 const colsWhere = (per, fn) => [...per.entries()].filter(([, v]) => fn(v)).map(([c]) => c).sort((a, b) => a - b);
 const sameSet = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 
-// Threat directions created by the disc at (r, c): which lines through it are one
-// square short of four. Vertical is excluded — a "seven" is about a row meeting a
-// diagonal, and a stacked vertical threat is its own tactic.
-const DIRS = { row: [0, 1], diagUp: [-1, 1], diagDown: [1, 1] };
-function threatDirs(b, p, r, c) {
-  const found = new Set();
-  for (const [name, [dr, dc]] of Object.entries(DIRS)) {
-    for (let s = -3; s <= 0; s++) {
-      let mine = 0;
-      let empty = 0;
-      let ok = true;
-      for (let k = 0; k < 4; k++) {
-        const rr = r + dr * (s + k);
-        const cc = c + dc * (s + k);
-        if (rr < 0 || rr >= ROWS || cc < 0 || cc >= COLS) { ok = false; break; }
-        if (b[rr][cc] === p) mine++;
-        else if (b[rr][cc] === EMPTY) empty++;
-        else { ok = false; break; }
-      }
-      // The window must contain (r, c) by construction of s, so 3 mine + 1 empty
-      // is exactly "this disc is part of a line that needs one more square".
-      if (ok && mine === 3 && empty === 1) found.add(name);
-    }
-  }
-  return found;
-}
-
 // A random legal, non-terminal position with P1 to move and an even disc count in
 // [lo, hi] — so P1 is also the player who opened, which is what the parity lesson
-// depends on.
-function randomPosition(lo, hi) {
+// depends on. `odd: true` builds the mirror case (an odd disc count, then colours
+// flipped) so that you are red, to move, and the player who moved *second*.
+function randomPosition(lo, hi, odd = false) {
   const b = createBoard();
   let cur = P1;
-  const target = lo + 2 * Math.floor(Math.random() * (Math.floor((hi - lo) / 2) + 1));
+  const span = Math.floor((hi - lo) / 2) + 1;
+  const target = lo + (odd ? 1 : 0) + 2 * Math.floor(Math.random() * span);
   for (let i = 0; i < target; i++) {
     const moves = legalMoves(b);
     if (!moves.length) return null;
@@ -100,7 +79,8 @@ function randomPosition(lo, hi) {
     if (checkWin(b, l.row, l.col)) return null; // already decided — unusable
     cur = other(cur);
   }
-  return legalMoves(b).length ? b : null;
+  if (!legalMoves(b).length) return null;
+  return odd ? flipColours(b) : b;
 }
 
 // ---------------------------------------------------------------- the curriculum
@@ -115,6 +95,7 @@ const uniqueSafe = (good) => (b, m, per) => sameSet(colsWhere(per, (v) => v >= 0
 const SPECS = [
   {
     id: 'centre',
+    convert: true, // ends in a win, so it can be carried through to the four
     name: 'Own the center',
     idea: 'The middle column sits on more fours than any other square on the board.',
     ask: 'Only one column keeps your win. Which?',
@@ -143,6 +124,7 @@ const SPECS = [
 
   {
     id: 'fork',
+    convert: true, // ends in a win, so it can be carried through to the four
     name: 'Two threats at once',
     idea: 'One threat gets blocked. Two open threats in one move cannot both be stopped.',
     ask: 'Find the move that makes two threats at once.',
@@ -157,21 +139,16 @@ const SPECS = [
     ],
     match(b) {
       if (colsWinningNow(b, P1).length) return null; // don't set a "find the win" drill
-      const forks = [];
-      let after = null;
-      for (const c of legalMoves(b)) {
-        const d = afterDrop(b, c, P1);
-        const open = openThreats(d.child, P1);
-        if (open.length >= 2) { forks.push(c); after = open; }
-      }
+      const forks = forkCols(b, P1);
       if (forks.length !== 1) return null;
-      return { good: forks, after };
+      return { good: forks, after: openThreats(afterDrop(b, forks[0], P1).child, P1) };
     },
     verify: (b, m, per) => uniqueWin(m.good)(b, m, per),
   },
 
   {
     id: 'seven',
+    convert: true, // ends in a win, so it can be carried through to the four
     name: 'The seven',
     idea: 'One disc finishing two lines — three along a row, three down a diagonal.',
     ask: 'One move builds a row and a diagonal. Find it.',
@@ -186,13 +163,7 @@ const SPECS = [
     ],
     match(b) {
       if (colsWinningNow(b, P1).length) return null;
-      const sevens = [];
-      for (const c of legalMoves(b)) {
-        const d = afterDrop(b, c, P1);
-        const dirs = threatDirs(d.child, P1, d.row, d.col);
-        const diagonal = dirs.has('diagUp') || dirs.has('diagDown');
-        if (dirs.has('row') && diagonal && winningSquares(d.child, P1).length >= 2) sevens.push(c);
-      }
+      const sevens = sevenCols(b, P1);
       if (sevens.length !== 1) return null;
       return { good: sevens };
     },
@@ -250,13 +221,8 @@ const SPECS = [
       if (openThreats(b, P2).length) return null; // nothing forced yet: the danger is your own doing
       const legal = legalMoves(b);
       if (legal.length < 3) return null;
-      const poisoned = [];
-      const safe = [];
-      for (const c of legal) {
-        const d = afterDrop(b, c, P1);
-        (colsWinningNow(d.child, P2).length ? poisoned : safe).push(c);
-      }
-      if (poisoned.length < 2 || !safe.length) return null;
+      const poisoned = poisonedCols(b, P1);
+      if (poisoned.length < 2 || poisoned.length === legal.length) return null;
       return { good: [], poison: poisoned };
     },
     // The answer is whatever the solver says survives — and it has to be one of
@@ -271,6 +237,7 @@ const SPECS = [
 
   {
     id: 'stack',
+    convert: true, // ends in a win, so it can be carried through to the four
     name: 'Stack your threats',
     idea: 'Two of your winning squares in one column, one directly above the other.',
     ask: 'Put two of your winning squares in one column, one above the other.',
@@ -285,28 +252,16 @@ const SPECS = [
     ],
     match(b) {
       if (colsWinningNow(b, P1).length) return null;
-      const found = [];
-      let after = null;
-      for (const c of legalMoves(b)) {
-        const d = afterDrop(b, c, P1);
-        if (openThreats(d.child, P1).length >= 2) continue; // that's the fork lesson, not this one
-        const squares = winningSquares(d.child, P1);
-        const fresh = new Set(newSquares(b, d.child, P1).map(([r, cc]) => `${r},${cc}`));
-        // The pair has to be one the move just built, or the drill teaches nothing.
-        const pair = squares.find(([r, cc]) =>
-          playableNow(d.child, r, cc) && r > 0 &&
-          squares.some(([r2, c2]) => c2 === cc && r2 === r - 1) &&
-          (fresh.has(`${r},${cc}`) || fresh.has(`${r - 1},${cc}`)));
-        if (pair) { found.push(c); after = [[pair[0] - 1, pair[1]], pair]; }
-      }
-      if (found.length !== 1) return null;
-      return { good: found, after };
+      const stacks = stackCols(b, P1);
+      if (stacks.length !== 1) return null;
+      return { good: [stacks[0].col], after: stacks[0].pair };
     },
     verify: (b, m, per) => uniqueWin(m.good)(b, m, per),
   },
 
   {
     id: 'parity',
+    convert: true, // ends in a win, so it can be carried through to the four
     name: 'Odd rows are yours',
     idea: 'Rows fill in order, so a threat on the right row is the one that gets collected.',
     ask: 'Two moves look alike. Only one lands on your row. Find it.',
@@ -357,30 +312,136 @@ const SPECS = [
     match(b) {
       if (colsWinningNow(b, P1).length) return null;
       if (openThreats(b, P2).length) return null; // no immediate four to block — the danger is a move away
-      const forkCols = legalMoves(b).filter((c) => {
-        const d = afterDrop(b, c, P2);
-        return openThreats(d.child, P2).length >= 2;
-      });
-      if (!forkCols.length) return null;
+      const theirForks = forkCols(b, P2);
+      if (!theirForks.length) return null;
       // Which of our moves leaves them with no fork at all?
       const clean = legalMoves(b).filter((c) => {
         const d = afterDrop(b, c, P1);
-        if (colsWinningNow(d.child, P2).length) return false;
-        return !legalMoves(d.child).some((x) => {
-          const e = afterDrop(d.child, x, P2);
-          return openThreats(e.child, P2).length >= 2;
-        });
+        return !colsWinningNow(d.child, P2).length && !forkCols(d.child, P2).length;
       });
       if (clean.length !== 1) return null;
-      return { good: clean, fork: forkCols };
+      return { good: clean, fork: theirForks };
     },
     verify: (b, m, per) => uniqueSafe(m.good)(b, m, per),
+  },
+
+  {
+    id: 'above',
+    name: 'Sit above their threat',
+    idea: 'A winning square of yours directly above one of theirs kills it stone dead.',
+    ask: 'One move leaves their threat unplayable. Find it.',
+    why: 'Now their square is poison to them — taking it hands you the one above.',
+    nudge: 'Their threat is still live. Find the move that makes taking it lose.',
+    close: 'You do not always have to block a threat. Sometimes you just make it unusable.',
+    range: [14, 26],
+    lesson: [
+      { say: 'They have a winning square waiting. You could block it — or you could make it worthless.', board: 'drill0', markOpp: 'all' },
+      { say: 'Put a winning square of yours directly above theirs. Now taking theirs lifts you onto yours.', board: 'drill0after' },
+      { say: 'Their threat is still on the board and they can never use it. Find that move.', board: 'drill0' },
+    ],
+    match(b) {
+      if (colsWinningNow(b, P1).length) return null;
+      if (!winningSquares(b, P2).length) return null; // nothing of theirs to cap
+      const caps = aboveCols(b, P1);
+      if (caps.length !== 1) return null;
+      return { good: [caps[0].col], after: [caps[0].pair[0]], capped: caps[0].pair };
+    },
+    verify: (b, m, per) => uniqueSafe(m.good)(b, m, per),
+  },
+
+  {
+    id: 'claimeven',
+    convert: true, // ends in a win, so it can be carried through to the four
+    name: 'Even rows, second player',
+    idea: 'When you move second the even rows fall to you — the mirror of odd-row parity.',
+    ask: 'You moved second here. Which move puts your threat on a row you will get?',
+    why: 'That one. An even row, and you are the one who fills it.',
+    nudge: 'Odd rows belong to whoever opened. That threat is theirs to fill, not yours.',
+    close: 'Moving second is not a handicap. Take the even rows and let them run out of moves.',
+    // The mirror of `parity`: the same idea from the other side of the board.
+    range: [14, 26],
+    odd: true,
+    lesson: [
+      { say: 'You did not open this game. They did. That changes which rows are yours.', board: 'empty', rows: [4, 2, 0] },
+      { say: 'The odd rows fall to the player who opened. The even rows — 2, 4 and 6, lit here — fall to you.', board: 'empty', rows: [4, 2, 0] },
+      { say: 'So build on the even rows and let them run out of safe moves. Find the move.', board: 'drill0' },
+    ],
+    match(b) {
+      if (colsWinningNow(b, P1).length) return null;
+      const before = winningSquares(b, P1).length;
+      let even = null;
+      let oddDecoy = false;
+      for (const c of legalMoves(b)) {
+        const d = afterDrop(b, c, P1);
+        const squares = winningSquares(d.child, P1);
+        if (squares.length <= before) continue;
+        if (openThreats(d.child, P1).length) continue; // immediate threats make it a fork
+        // Board rows are top-down: an even index is an even row from the bottom.
+        if (squares.every(([r]) => r % 2 === 0)) { if (even !== null) return null; even = c; }
+        else if (squares.some(([r]) => r % 2 === 1)) oddDecoy = true;
+      }
+      if (even === null || !oddDecoy) return null;
+      return { good: [even] };
+    },
+    verify: (b, m, per) => uniqueWin(m.good)(b, m, per),
   },
 ];
 
 // ---------------------------------------------------------------- search
 const DRILLS_PER_TACTIC = Number(process.env.TACTIC_DRILLS || 3);
 const SECONDS_PER_TACTIC = Number(process.env.TACTIC_SECONDS || 240);
+const POOL = Number(process.env.TACTIC_POOL || 9); // candidates to choose 3 from
+
+// How hard the drill is to *see*. Decoys are the moves that also build something —
+// they look constructive, so a position full of them hides the real answer; an
+// answer away from the middle is harder to find than one in it. Used to ship an
+// easy, a middling and a subtle position per tactic instead of three random ones.
+function difficulty(b, m) {
+  const answer = m.good[0];
+  let decoys = 0;
+  for (const c of legalMoves(b)) {
+    if (c === answer) continue;
+    const d = afterDrop(b, c, P1);
+    if (d && newSquares(b, d.child, P1).length > 0) decoys++;
+  }
+  return decoys * 2 + Math.abs(3 - answer);
+}
+
+// Play the position out: your move, their best defence, your best move, … until
+// you have four. Returns the column sequence and how many moves of yours it took,
+// or null if it can't be finished inside `maxOwnMoves` (or a solve aborts).
+function playOut(b, firstCol, maxOwnMoves = 6) {
+  const board = cloneBoard(b);
+  const line = [firstCol];
+  let l = dropDisc(board, firstCol, P1);
+  if (!l) return null;
+  if (checkWin(board, l.row, l.col)) return { line, ownMoves: 1 };
+  for (let own = 1; own < maxOwnMoves; own++) {
+    let aborted = false;
+    const reply = bestDefence(board, P2, (child) => {
+      const r = solve(child, P1);
+      if (!r) aborted = true;
+      return r ? r.score : 0;
+    });
+    if (aborted || reply == null) return null;
+    dropDisc(board, reply, P2);
+    line.push(reply);
+    let best = null;
+    let bestScore = -Infinity;
+    for (const c of legalMoves(board)) {
+      const d = afterDrop(board, c, P1);
+      if (checkWin(d.child, d.row, d.col)) { best = c; bestScore = Infinity; break; }
+      const r = solve(d.child, P2);
+      if (!r) return null;
+      if (-r.score > bestScore) { bestScore = -r.score; best = c; }
+    }
+    if (best == null) return null;
+    l = dropDisc(board, best, P1);
+    line.push(best);
+    if (checkWin(board, l.row, l.col)) return { line, ownMoves: own + 1 };
+  }
+  return null;
+}
 
 // After the key move, does every legal reply leave us an immediate four? When
 // that holds the drill can be played out — you make the move, they defend, you
@@ -409,18 +470,23 @@ let committed = new Map();
 if (reuse) {
   try {
     const mod = await import('../js/tactics.js');
-    committed = new Map(mod.TACTICS.map((t) => [t.id, t.drills.map((d) => d.grid)]));
+    committed = new Map(mod.TACTICS.map((t) => [t.id, t.drills.map((d) => ({ grid: d.grid, convert: !!d.convert }))]));
   } catch { /* no committed set yet — fall through to a full search */ }
 }
 
 // Re-derive a drill from a grid: the pattern has to still match and the solver
 // has to still agree, or the position is dropped and searched for afresh.
-function rebuild(spec, grid) {
+function rebuild(spec, grid, convert) {
   const b = decode(grid);
   const m = spec.match(b);
   if (!m) return null;
   const per = analyse(b);
   if (!per || !spec.verify(b, m, per)) return null;
+  if (convert) {
+    const out = playOut(b, m.good[0], 5);
+    if (!out || out.ownMoves < 2) return null;
+    return makeDrill(b, grid, m, per, out.ownMoves);
+  }
   return makeDrill(b, grid, m, per);
 }
 
@@ -428,7 +494,7 @@ function rebuild(spec, grid) {
 // pattern itself recorded (a fork's two open threats, a stack's pair) or, failing
 // that, simply what the move built. Computed here so the app never has to guess
 // which of the position's threats the lesson was about.
-function makeDrill(b, grid, m, per) {
+function makeDrill(b, grid, m, per, winIn = 0) {
   const child = afterDrop(b, m.good[0], P1).child;
   // The solver's verdict on every column, from your side: > 0 wins, 0 draws,
   // < 0 loses, null = the column is full. The app judges what you actually
@@ -442,29 +508,55 @@ function makeDrill(b, grid, m, per) {
     follow: m.good.length === 1 && forcedFinish(b, m.good[0]),
     show: m.after || newSquares(b, child, P1),
     values,
+    // A convert drill isn't over when you spot the move: you play it out against
+    // live best defence for `winIn` of your moves until the four is on the board.
+    convert: winIn > 0,
+    winIn,
     poison: m.poison || null,
     fork: m.fork || null,
+    capped: m.capped || null,
+    difficulty: difficulty(b, m),
     discs: discCount(b),
   };
+}
+
+// Three positions spread across the pool's difficulty range — easiest first, so a
+// tactic opens with a position where the idea is plain and closes with one where
+// it is buried.
+function spread(pool, n) {
+  const sorted = [...pool].sort((a, b) => a.difficulty - b.difficulty || b.discs - a.discs);
+  if (sorted.length <= n) return sorted;
+  const picks = [];
+  for (let i = 0; i < n; i++) picks.push(sorted[Math.round((i * (sorted.length - 1)) / (n - 1))]);
+  return [...new Set(picks)];
 }
 
 const results = [];
 for (const spec of SPECS) {
   if (only.length && !only.includes(spec.id)) continue;
-  const drills = [];
+  const pool = [];
   const seen = new Set();
+  let convertDrill = null;
   const t0 = Date.now();
   let tried = 0;
-  for (const grid of committed.get(spec.id) || []) {
-    if (drills.length >= DRILLS_PER_TACTIC) break;
-    const kept = rebuild(spec, grid);
-    if (kept) { drills.push(kept); seen.add(grid); }
-    else console.error(`${spec.id}: committed position no longer verifies — searching for a replacement`);
+
+  // Committed positions first: they keep their role (recognition or convert) and
+  // are re-proved on the way through.
+  for (const prev of committed.get(spec.id) || []) {
+    const kept = rebuild(spec, prev.grid, prev.convert);
+    if (!kept) { console.error(`${spec.id}: a committed position no longer verifies — replacing it`); continue; }
+    seen.add(prev.grid);
+    if (prev.convert) convertDrill = kept;
+    else pool.push(kept);
   }
-  if (drills.length) console.error(`${spec.id}: reused ${drills.length} committed position(s)`);
-  while (drills.length < DRILLS_PER_TACTIC && Date.now() - t0 < SECONDS_PER_TACTIC * 1000) {
+  if (pool.length || convertDrill) {
+    console.error(`${spec.id}: reused ${pool.length} position(s)${convertDrill ? ' + the convert drill' : ''}`);
+  }
+
+  const deadline = t0 + SECONDS_PER_TACTIC * 1000;
+  while (pool.length < (reuse ? DRILLS_PER_TACTIC : POOL) && Date.now() < deadline) {
     tried++;
-    const b = randomPosition(spec.range[0], spec.range[1]);
+    const b = randomPosition(spec.range[0], spec.range[1], !!spec.odd);
     if (!b) continue;
     const key = gridStr(b);
     if (seen.has(key)) continue;
@@ -472,16 +564,43 @@ for (const spec of SPECS) {
     const m = spec.match(b);
     if (!m) continue;
     const per = analyse(b);
-    if (!per) continue;
-    if (!spec.verify(b, m, per)) continue;
-    drills.push(makeDrill(b, key, m, per));
-    console.error(`${spec.id}: ${drills.length}/${DRILLS_PER_TACTIC} (tried ${tried}, ${((Date.now() - t0) / 1000).toFixed(0)}s)`);
+    if (!per || !spec.verify(b, m, per)) continue;
+    pool.push(makeDrill(b, key, m, per));
+    console.error(`${spec.id}: pool ${pool.length} (tried ${tried}, ${((Date.now() - t0) / 1000).toFixed(0)}s)`);
   }
-  if (!drills.length) {
+  if (!pool.length) {
     console.error(`\nFAILED: no drill found for '${spec.id}' in ${SECONDS_PER_TACTIC}s (tried ${tried})`);
     process.exit(1);
   }
-  drills.sort((a, b2) => b2.discs - a.discs); // fuller board first: tighter, easier to read
+  const drills = spread(pool, DRILLS_PER_TACTIC);
+
+  // The convert drill: the same idea, but you have to carry it through to the four
+  // against a live defence. Only for the tactics that end in a win, and only on a
+  // fuller board — the app solves each of your moves as you play, and that has to
+  // stay instant. Missing one just means the tactic has its three drills.
+  if (spec.convert && !convertDrill) {
+    const cDeadline = Date.now() + SECONDS_PER_TACTIC * 1000;
+    let cTried = 0;
+    while (!convertDrill && Date.now() < cDeadline) {
+      cTried++;
+      const b = randomPosition(22, 30, !!spec.odd);
+      if (!b) continue;
+      const key = gridStr(b);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const m = spec.match(b);
+      if (!m) continue;
+      const per = analyse(b);
+      if (!per || !spec.verify(b, m, per)) continue;
+      const out = playOut(b, m.good[0], 5);
+      if (!out || out.ownMoves < 2 || out.ownMoves > 4) continue;
+      convertDrill = makeDrill(b, key, m, per, out.ownMoves);
+      console.error(`${spec.id}: convert drill, win in ${out.ownMoves} (tried ${cTried})`);
+    }
+    if (!convertDrill) console.error(`${spec.id}: no convert drill found — shipping ${drills.length} recognition drills`);
+  }
+  if (convertDrill) drills.push(convertDrill);
+
   results.push({ spec, drills });
 }
 
@@ -492,13 +611,16 @@ for (const spec of SPECS) {
 function buildPage(page, drill) {
   const out = { say: page.say };
   const b0 = decode(drill.grid);
-  let board = b0;
-  if (page.board === 'empty') board = createBoard();
-  else if (page.board === 'drill0after') {
-    const d = afterDrop(b0, drill.good[0], P1);
-    board = d.child;
+  out.grid = page.board === 'empty' ? EMPTY_GRID : gridStr(b0);
+
+  // The "after" page isn't a still of the finished position any more: it starts
+  // from the drill and *plays* the idea — your move, and where the payoff is
+  // immediate, their best defence and your four. The app animates `play`, so the
+  // teacher demonstrates instead of describing.
+  if (page.board === 'drill0after') {
+    const out3 = drill.follow ? playOut(b0, drill.good[0], 2) : null;
+    out.play = out3 && out3.ownMoves === 2 ? out3.line : [drill.good[0]];
   }
-  out.grid = page.board === 'empty' ? EMPTY_GRID : gridStr(board);
 
   const marks = [];
   if (page.marks) marks.push(...page.marks);
@@ -526,13 +648,15 @@ const blocks = results.map(({ spec, drills }) => {
   const pages = spec.lesson.map((p) => {
     const built = buildPage(p, drills[0]);
     const bits = [`grid: ${q(built.grid)}`, `say: ${q(built.say)}`];
+    if (built.play) bits.push(`play: ${arr(built.play)}`);
     if (built.marks) bits.push(`marks: ${pairs(built.marks)}`);
     if (built.cols) bits.push(`cols: ${arr(built.cols)}`);
     if (built.rows) bits.push(`rows: ${arr(built.rows)}`);
     return `      { ${bits.join(', ')} },`;
   }).join('\n');
   const rows = drills.map((d) =>
-    `      { grid: ${q(d.grid)}, good: ${arr(d.good)}, follow: ${d.follow},\n` +
+    `      { grid: ${q(d.grid)}, good: ${arr(d.good)}, follow: ${d.follow},` +
+    (d.convert ? ` convert: true, winIn: ${d.winIn},` : '') + '\n' +
     `        show: ${pairs(d.show)}, values: [${d.values.map((v) => (v == null ? 'null' : v)).join(', ')}] },`).join('\n');
   return `  {
     id: ${q(spec.id)},
@@ -553,19 +677,23 @@ ${rows}
 
 const out = `// AUTO-GENERATED by tools/gen_tactics.mjs — do not edit by hand.
 //
-// The Tactics curriculum: eight ideas a player can actually learn, each with a
+// The Tactics curriculum: ten ideas a player can actually learn, each with a
 // short lesson the teacher walks you through and drills to try it on.
 //   lesson — the teacher's pages. Each carries the position to show ('grid', 42
 //            chars, row-major top→bottom; '0' empty, '1' you/red, '2' them/yellow)
 //            and optionally squares ('marks'), whole columns ('cols') or rows
-//            ('rows') to light up while it is on screen.
+//            ('rows') to light up while it is on screen. A page with 'play' is a
+//            demonstration: those columns are dropped in turn (you, them, you) so
+//            the teacher shows the idea working instead of describing it.
 //   close  — what the teacher says once you have finished all of its drills.
 //   drills — positions where YOU are red and to move. 'good' is the move the
 //            tactic is about, and the solver has confirmed it is the ONLY move
 //            that works, so anything else is a real mistake. 'show' is what the
 //            teacher lights up once you have played it — the very squares the
 //            tactic is about. 'follow' marks the drills where every reply leaves
-//            you an immediate four, so the app can let you play the win out.
+//            you an immediate four, so the app can let you play the win out, and
+//            'convert' marks the last drill of a tactic, where you carry the idea
+//            through to the four yourself over 'winIn' moves against live defence.
 //            'values' is the solver's verdict on every column from your side
 //            (> 0 wins, 0 draws, < 0 loses, null = full), so the app can accept
 //            any move that comes to the same thing as the one being taught.

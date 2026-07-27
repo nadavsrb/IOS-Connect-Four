@@ -27,6 +27,9 @@ import { emptyHistory, recordGame, summarize, winRate, DIFFICULTIES, DIFFICULTY_
 import { summarizeReview } from './review.js';
 import { PUZZLES } from './puzzles.js';
 import { TACTICS } from './tactics.js';
+import {
+  openThreats, afterDrop, newSquares, forkCols, handsThemFour, bestDefence, missedTactic,
+} from './patterns.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
@@ -532,6 +535,10 @@ const teacherBubbleEl = $('#teacher-bubble');
 const teacherSayEl = $('#teacher-say');
 const teacherLiveEl = $('#teacher-say-live');
 const tcShowBtn = $('#tc-show');
+const tcRetryBtn = $('#tc-retry');
+const tacticChoicesEl = $('#tactic-choices');
+const examBtn = $('#btn-tactic-exam');
+const reviewLearnBtn = $('#review-learn');
 const tcNextBtn = $('#tc-next');
 const tacticNextLabel = $('#tc-next-label');
 
@@ -774,7 +781,7 @@ const cellAt = (r, c) => cellIn(boardEl, r, c);
 
 // Create a disc in cell (r,c) of board element `bEl`. If `drop`, animate it
 // falling from the top. Shared by the live game board and the replay board.
-function spawnDisc(bEl, r, c, color, { drop = false } = {}) {
+function spawnDisc(bEl, r, c, color, { drop = false, ghost = false } = {}) {
   const cell = cellIn(bEl, r, c);
   const disc = document.createElement('div');
   disc.className = 'disc';
@@ -786,6 +793,12 @@ function spawnDisc(bEl, r, c, color, { drop = false } = {}) {
     disc.style.setProperty('--from', `${-(cRect.top - bRect.top)}px`);
   }
   cell.appendChild(disc);
+  // Keep the cell's label honest for screen readers — but a hint's ghost disc is
+  // a suggestion, not an occupant, so it leaves the square described as empty.
+  if (!ghost) {
+    const who = color === PUZZLE_COLORS[P2] || color === game.colors[P2] ? 'yellow' : 'red';
+    cell.setAttribute('aria-label', `Column ${c + 1}, row ${ROWS - r}, ${who}`);
+  }
   return disc;
 }
 
@@ -1682,7 +1695,21 @@ function renderBoardDiscs() {
       if (p !== EMPTY) spawnDisc(boardEl, r, c, colorFor(p));
     }
   }
+  labelBoard(boardEl, game.board);
   applyLastMoveMarker();
+}
+
+// Re-describe every square from the board. spawnDisc labels as it goes, which
+// covers a drop; this covers everything that moves discs without spawning them —
+// an undo, or a pop sliding a whole column down.
+function labelBoard(bEl, board) {
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const v = board[r][c];
+      const who = v === EMPTY ? 'empty' : v === P2 ? 'yellow' : 'red';
+      cellIn(bEl, r, c)?.setAttribute('aria-label', `Column ${c + 1}, row ${ROWS - r}, ${who}`);
+    }
+  }
 }
 
 // Animate a pop on `col`: the bottom disc drops out, and every disc above slides
@@ -1692,6 +1719,7 @@ function renderPopAnimated(col) {
     renderBoardDiscs();
     return;
   }
+  labelBoard(boardEl, game.board); // the discs slide; the descriptions can't wait
   boardEl.querySelectorAll('.disc.last').forEach((d) => d.classList.remove('last'));
 
   const discs = [];
@@ -2050,7 +2078,7 @@ function showHint() {
   const row = landingRow(game.board, col);
   if (row < 0) return;
   for (let r = 0; r < ROWS; r++) cellAt(r, col).classList.add('hint');
-  const ghost = spawnDisc(boardEl, row, col, colorFor(game.current));
+  const ghost = spawnDisc(boardEl, row, col, colorFor(game.current), { ghost: true });
   ghost.classList.add('ghost');
   hintTimer = setTimeout(clearHint, 2500);
 }
@@ -2091,6 +2119,11 @@ function buildBoardInto(el) {
       cell.className = 'cell';
       cell.dataset.row = String(r);
       cell.dataset.col = String(c);
+      // The board is a grid of plain divs; without these it is a wall of nothing
+      // to a screen reader. Rows are numbered from the bottom, the way players
+      // count them. renderCellLabel keeps the occupant up to date.
+      cell.setAttribute('role', 'gridcell');
+      cell.setAttribute('aria-label', `Column ${c + 1}, row ${ROWS - r}, empty`);
       const socket = document.createElement('div');
       socket.className = 'socket';
       cell.appendChild(socket);
@@ -2334,9 +2367,23 @@ function renderReviewMoments() {
     const chip = document.createElement('button');
     chip.className = `review-chip is-${m.kind}`;
     chip.dataset.index = String(m.index);
-    chip.textContent = `Move ${m.moveNo} · ${d.names[m.mover]} −${m.loss}%`;
+    const tactic = tacticMissedAt(m);
+    chip.innerHTML = `<span>Move ${m.moveNo} · ${d.names[m.mover]} −${m.loss}%</span>` +
+      (tactic ? `<b class="review-chip-idea">missed: ${tactic.name.toLowerCase()}</b>` : '');
     reviewMoments.appendChild(chip);
   }
+}
+
+// Which taught idea would have saved a flagged move? The review knows *that* a
+// move lost ground; the patterns know *what* was on the board. Together they can
+// name it — and the lesson lands at the only moment anyone wants it, right after
+// it cost them the game.
+function tacticMissedAt(moment) {
+  const board = replay.boards[moment.index];
+  const move = replay.data && replay.data.moves[moment.index];
+  if (!board || !move || move.type === 'pop') return null; // pops are their own game
+  const id = missedTactic(board, moment.mover, move.col);
+  return id ? TACTICS.find((t) => t.id === id) || null : null;
 }
 
 // Tapping a flagged move jumps to the position *before* it and shows what should
@@ -2345,6 +2392,15 @@ function openReviewMoment(index) {
   stopReplayPlay();
   replayStepTo(index, false);
   showReplayHint();
+  // If the mistake has a name, offer the lesson for it right here.
+  const moment = replay.review && replay.review.moments.find((m) => m.index === index);
+  const tactic = moment ? tacticMissedAt(moment) : null;
+  if (!reviewLearnBtn) return;
+  reviewLearnBtn.hidden = !tactic;
+  if (tactic) {
+    reviewLearnBtn.textContent = `Learn this: ${tactic.name} ›`;
+    reviewLearnBtn.dataset.tactic = tactic.id;
+  }
 }
 
 // Scrubbing the graph seeks the replay.
@@ -2387,7 +2443,7 @@ function showReplayHint() {
   }
   const row = landingRow(board, move.col);
   if (row < 0) return;
-  const ghost = spawnDisc(replayBoardEl, row, move.col, d.colors[mover]);
+  const ghost = spawnDisc(replayBoardEl, row, move.col, d.colors[mover], { ghost: true });
   ghost.classList.add('ghost');
 }
 
@@ -2609,44 +2665,13 @@ const PUZZLE_SOLVE_BUDGET = 5_000_000;
 
 // The opponent's strongest reply: take an outright win if there is one, otherwise
 // the move that minimises your score — i.e. drags the loss out as long as
-// possible.
-//
-// Ties matter more than they look. Once a position is lost, *every* move loses at
-// the same depth, so the score alone says nothing and whatever the tiebreak likes
-// gets played — which used to mean the centre column while your winning square sat
-// there untouched. Against a fork that reads as the opponent not even trying. So
-// the first tiebreak is now "take one of the squares they are about to win on",
-// and centre-most only settles what's left, keeping it deterministic.
+// possible, breaking ties toward actually blocking you (js/patterns.js explains
+// why that tiebreak matters).
 function puzzleBestDefence(board) {
-  const moves = legalMoves(board);
-  if (moves.length === 0) return null;
-  const yourThreats = new Set(
-    winningSquares(board, P1).filter(([r, c]) => landingRow(board, c) === r).map(([, c]) => c)
-  );
-  let best = null;
-  let bestScore = Infinity;
-  let bestBlock = false;
-  let bestCentre = Infinity;
-  for (const c of moves) {
-    const child = cloneBoard(board);
-    const landing = dropDisc(child, c, P2);
-    if (checkWin(child, landing.row, landing.col)) return c; // wins outright
+  return bestDefence(board, P2, (child) => {
     const solved = solveBoard(child, P1, { budget: PUZZLE_SOLVE_BUDGET });
-    const score = solved ? solved.score : 0; // abort ⇒ treat as unknown, prefer centre
-    const blocks = yourThreats.has(c);
-    const centre = Math.abs(3 - c);
-    const better =
-      score < bestScore ||
-      (score === bestScore && blocks && !bestBlock) ||
-      (score === bestScore && blocks === bestBlock && centre < bestCentre);
-    if (better) {
-      bestScore = score;
-      bestBlock = blocks;
-      bestCentre = centre;
-      best = c;
-    }
-  }
-  return best;
+    return solved ? solved.score : 0; // abort ⇒ unknown, let the other keys decide
+  });
 }
 
 function decodePuzzleGrid(grid) {
@@ -2948,7 +2973,7 @@ function puzzleHint() {
   const row = landingRow(puzzle.board, bestCol);
   if (row < 0) return;
   for (let r = 0; r < ROWS; r++) cellIn(puzzleBoardEl, r, bestCol).classList.add('hint');
-  const ghost = spawnDisc(puzzleBoardEl, row, bestCol, PUZZLE_COLORS[P1]);
+  const ghost = spawnDisc(puzzleBoardEl, row, bestCol, PUZZLE_COLORS[P1], { ghost: true });
   ghost.classList.add('ghost');
   setPuzzleStatus(`Hint: this column — then it's a win in ${bestMate}.`, 'hint');
 }
@@ -3024,43 +3049,64 @@ function wirePuzzleBoard() {
 // move that works — so a wrong answer here is a real mistake, not an opinion.
 
 const TACTICS_KEY = 'c4.tactics.v1';
-let tacticProgress = loadJSON(TACTICS_KEY, { learned: [] });
+let tacticProgress = loadJSON(TACTICS_KEY, { learned: [], review: [], examBest: 0, at: null });
 if (!Array.isArray(tacticProgress.learned)) tacticProgress.learned = [];
+if (!Array.isArray(tacticProgress.review)) tacticProgress.review = [];
 const saveTacticProgress = () => saveJSON(TACTICS_KEY, tacticProgress);
 
 // One accent per tactic, in curriculum order — cool at the start, hot at the end.
 const TACTIC_TINT = ['#7cff6b', '#3dd7ff', '#8ab6ff', '#f5c451', '#ff9f3c', '#b26bff', '#ff5f9e', '#ff4d4d'];
 
 // phase: 'lesson' → 'drill' → 'finish' (playing the win out) → 'done'
-const tactic = { i: 0, phase: 'lesson', page: 0, drill: 0, board: null, busy: false, gen: 0, wrong: 0 };
+const tactic = { i: 0, phase: 'lesson', page: 0, drill: 0, board: null, busy: false, gen: 0, wrong: 0, drillMoves: 0, clean: [] };
 
 const DRILL_LEAD = ['', 'Again — a new position. ', 'Last one. '];
+
+// The exam runs on the same screen, in its own phases: 'exam-name' (pick the
+// idea), 'exam-play' (find the move), 'exam-done', 'exam-over'.
+const exam = { questions: [], at: 0, right: 0, missed: new Set(), namedRight: false };
 
 function renderTacticList() {
   if (!tacticListEl) return;
   const learned = new Set(tacticProgress.learned);
+  const needsReview = new Set(tacticProgress.review || []);
   tacticListEl.innerHTML = '';
   TACTICS.forEach((t, i) => {
     const done = learned.has(t.id);
+    const rusty = needsReview.has(t.id);
     const card = document.createElement('button');
-    card.className = 'tactic-card' + (done ? ' is-learned' : '');
+    card.className = 'tactic-card' + (done ? ' is-learned' : '') + (rusty ? ' needs-review' : '');
     card.style.setProperty('--tier', TACTIC_TINT[i % TACTIC_TINT.length]);
     card.dataset.i = String(i);
     card.setAttribute('role', 'listitem');
-    card.setAttribute('aria-label', `${t.name}. ${t.idea}${done ? ' Learned.' : ''}`);
+    card.setAttribute('aria-label',
+      `${t.name}. ${t.idea}${done ? ' Learned.' : ''}${rusty ? ' Needs review.' : ''}`);
     card.innerHTML =
       `<span class="tc-index">${i + 1}</span>` +
-      `<span class="tc-text"><span class="tc-name">${t.name}</span><span class="tc-idea">${t.idea}</span></span>` +
-      `<span class="tc-mark" data-icon="${done ? 'check' : 'cap'}"></span>`;
+      `<span class="tc-text"><span class="tc-name">${t.name}</span>` +
+      `<span class="tc-idea">${rusty ? 'Missed in the exam — worth another look.' : t.idea}</span></span>` +
+      `<span class="tc-mark" data-icon="${rusty ? 'bulb' : done ? 'check' : 'cap'}"></span>`;
     tacticListEl.appendChild(card);
   });
   installIcons(tacticListEl);
   const count = TACTICS.filter((t) => learned.has(t.id)).length;
   if (tacticsCountEl) tacticsCountEl.textContent = `${count} / ${TACTICS.length} learned`;
   if (tacticsProgressFill) tacticsProgressFill.style.width = `${Math.round((count / TACTICS.length) * 100)}%`;
+  if (examBtn) {
+    examBtn.hidden = !examReady();
+    const best = tacticProgress.examBest || 0;
+    const label = examBtn.querySelector('.exam-label');
+    if (label) label.textContent = best ? `Final exam — best ${best}/${EXAM_LENGTH}` : 'Final exam — which idea is this?';
+  }
+}
+
+function hideExamChoices() {
+  if (tacticChoicesEl) tacticChoicesEl.hidden = true;
+  $('#screen-tactic')?.classList.remove('is-choosing');
 }
 
 function openTactics() {
+  hideExamChoices();
   renderTacticList();
   showScreen('screen-tactics', 'fwd');
 }
@@ -3157,6 +3203,17 @@ function litRows(rows) {
 
 function renderTacticSteps() {
   if (!tacticStepsEl) return;
+  if (tactic.phase.startsWith('exam')) {
+    tacticStepsEl.innerHTML = '';
+    for (let k = 0; k < exam.questions.length; k++) {
+      const dot = document.createElement('i');
+      dot.classList.add('is-drill');
+      if (k < exam.at || tactic.phase === 'exam-over') dot.classList.add('is-done');
+      if (k === exam.at && tactic.phase !== 'exam-over') dot.classList.add('is-now');
+      tacticStepsEl.appendChild(dot);
+    }
+    return;
+  }
   const t = TACTICS[tactic.i];
   const pages = t.lesson.length;
   // A solved drill counts as behind you, so its dot fills and the next one lights.
@@ -3167,6 +3224,9 @@ function renderTacticSteps() {
     const dot = document.createElement('i');
     if (k >= pages) dot.classList.add('is-drill');
     if (k < at || tactic.phase === 'done') dot.classList.add('is-done');
+    // A drill solved without a wrong turn gets a brighter dot — a quiet record of
+    // which ones you actually knew.
+    if (k >= pages && tactic.clean[k - pages]) dot.classList.add('is-clean');
     if (k === at && tactic.phase !== 'done') dot.classList.add('is-now');
     tacticStepsEl.appendChild(dot);
   }
@@ -3183,11 +3243,16 @@ function enterTactic(i) {
   tactic.drill = 0;
   tactic.busy = false;
   tactic.wrong = 0;
+  tactic.clean = [];
   tactic.board = null;
   if (tacticTitleEl) tacticTitleEl.textContent = TACTICS[i].name;
   showScreen('screen-tactic', 'fwd');
   teacherEl?.classList.add('is-active');
-  showLessonPage(0);
+  // Coming back to a tactic you walked out of halfway resumes at that drill
+  // rather than making you sit through the lesson again.
+  const at = tacticProgress.at;
+  if (at && at.id === TACTICS[i].id && at.phase === 'drill' && at.drill > 0) startDrill(at.drill);
+  else showLessonPage(0);
 }
 
 function showLessonPage(page) {
@@ -3195,19 +3260,69 @@ function showLessonPage(page) {
   tactic.phase = 'lesson';
   tactic.page = Math.max(0, Math.min(page, t.lesson.length - 1));
   const p = t.lesson[tactic.page];
+  tactic.gen++;
   tactic.board = decodePuzzleGrid(p.grid);
   paintTacticBoard(tactic.board);
   clearTacticMarks();
-  markCells(p.marks);
-  litColumns(p.cols);
-  litRows(p.rows);
+  if (p.play) {
+    playDemo(p); // this page is a demonstration, not a still
+  } else {
+    markCells(p.marks);
+    litColumns(p.cols);
+    litRows(p.rows);
+  }
   teacherSay(p.say);
-  if (tcShowBtn) tcShowBtn.hidden = true;
+  if (tcShowBtn) {
+    // On a demonstration page the button replays it instead of pointing.
+    tcShowBtn.hidden = !p.play;
+    tcShowBtn.disabled = false;
+    setTacticShowLabel(p.play ? 'Again' : 'Show me');
+  }
   if (tcNextBtn) {
     tcNextBtn.hidden = false;
     setTacticNextLabel(tactic.page < t.lesson.length - 1 ? 'Next' : 'Try it');
   }
   renderTacticSteps();
+}
+
+// Play the idea out on the lesson board: your move drops, the squares it built
+// light up, then (where the win is immediate) their best defence and your four.
+// Telling someone "they block one, you take the other" over a still board asks
+// them to imagine it; this shows it.
+function playDemo(p) {
+  const gen = tactic.gen;
+  tactic.busy = true;
+  tactic.board = decodePuzzleGrid(p.grid);
+  paintTacticBoard(tactic.board);
+  clearTacticMarks();
+  const steps = p.play;
+  const run = (i) => {
+    if (tactic.gen !== gen || currentScreen !== 'screen-tactic') return;
+    if (i >= steps.length) {
+      tactic.busy = false;
+      if (steps.length === 1) markCells(p.marks); // nothing more to show: leave the threats lit
+      return;
+    }
+    const player = i % 2 === 0 ? P1 : P2;
+    tacticPlace(steps[i], player, (row) => {
+      if (tactic.gen !== gen) return;
+      const cells = checkWin(tactic.board, row, steps[i]);
+      if (cells) {
+        cells.forEach(([wr, wc]) => cellIn(tacticBoardEl, wr, wc).querySelector('.disc')?.classList.add('win'));
+        sound.aha();
+        tactic.busy = false;
+        return;
+      }
+      if (i === 0) markCells(p.marks); // the threats the first move built
+      setTimeout(() => run(i + 1), i === 0 ? 900 : 620);
+    });
+  };
+  setTimeout(() => run(0), 500);
+}
+
+function setTacticShowLabel(text) {
+  const label = $('#tc-show-label');
+  if (label) label.textContent = text;
 }
 
 function setTacticNextLabel(text) {
@@ -3225,13 +3340,26 @@ function startDrill(k) {
   tactic.drill = k;
   tactic.busy = false;
   tactic.wrong = 0;
-  tactic.board = decodePuzzleGrid(t.drills[k].grid);
+  tactic.drillMoves = 0;
+  const d = t.drills[k];
+  tactic.board = decodePuzzleGrid(d.grid);
   paintTacticBoard(tactic.board);
   clearTacticMarks();
-  teacherSay((DRILL_LEAD[k] || '') + t.ask);
-  if (tcShowBtn) { tcShowBtn.hidden = false; tcShowBtn.disabled = false; }
+  teacherSay(d.convert
+    ? `Last one, and this time you finish it. Play the idea out — four in a row inside ${d.winIn} moves.`
+    : (DRILL_LEAD[k] || '') + t.ask);
+  if (tcShowBtn) { tcShowBtn.hidden = false; tcShowBtn.disabled = false; setTacticShowLabel('Show me'); }
+  if (tcRetryBtn) tcRetryBtn.hidden = true;
   if (tcNextBtn) tcNextBtn.hidden = true;
+  saveTacticPlace();
   renderTacticSteps();
+}
+
+// Where you are in the curriculum, so leaving in the middle of a tactic and
+// coming back doesn't start it over.
+function saveTacticPlace() {
+  tacticProgress.at = { id: TACTICS[tactic.i].id, phase: tactic.phase, page: tactic.page, drill: tactic.drill };
+  saveTacticProgress();
 }
 
 // Drop `player`'s disc on the tactic board (animated), then cb(row).
@@ -3264,15 +3392,22 @@ function judgeAlternative(drill, col) {
   return null;
 }
 
-// Would dropping into `col` give the opponent a four on their very next move?
-function handsThemFour(col) {
-  const after = cloneBoard(tactic.board);
-  if (!dropDisc(after, col, P1)) return false;
-  return legalMoves(after).some((c) => {
-    const reply = cloneBoard(after);
-    const l = dropDisc(reply, c, P2);
-    return !!checkWin(reply, l.row, l.col);
-  });
+// What your move actually did, in the teacher's words. Facts first — a correction
+// that describes your move is worth more than one that repeats the lesson.
+function describeMistake(col, nudge) {
+  const board = tactic.board;
+  const d = afterDrop(board, col, P1);
+  if (!d) return nudge;
+  // One clause is a correction; two is a lecture. Say the sharpest true thing.
+  if (handsThemFour(board, col, P1)) return 'That lets them make four next move.';
+  const theirs = openThreats(board, P2);
+  if (theirs.length && !theirs.some(([, c]) => c === col)) {
+    return 'They still have four waiting, and that does not take it.';
+  }
+  if (forkCols(d.child, P2).length) return 'That hands them the double threat.';
+  const built = newSquares(board, d.child, P1);
+  if (!built.length) return 'That builds nothing. ' + nudge;
+  return 'A three — but they answer it and your move is spent.';
 }
 
 // Threats the move just built, for a move the drill didn't anticipate.
@@ -3293,9 +3428,11 @@ function tacticWrong(col, message) {
 
 function tacticDrop(col) {
   if (col == null || tactic.busy) return;
-  if (tactic.phase !== 'drill' && tactic.phase !== 'finish') return;
+  const playable = tactic.phase === 'drill' || tactic.phase === 'finish' || tactic.phase === 'exam-play';
+  if (!playable) return;
   if (landingRow(tactic.board, col) < 0) { sound.invalid(); return; }
   clearTacticMarks();
+  if (tactic.phase === 'exam-play') { examDrop(col); return; }
 
   const t = TACTICS[tactic.i];
   const gen = tactic.gen;
@@ -3322,6 +3459,12 @@ function tacticDrop(col) {
   }
 
   const drill = t.drills[tactic.drill];
+
+  // A convert drill is a game, not a question: keep playing until the four is on
+  // the board. Any move that keeps the win stands; anything else is refused
+  // before it lands, so you never have to undo.
+  if (drill.convert) { convertDrop(col, drill, gen); return; }
+
   const taught = drill.good.includes(col);
   // A different column can still be a fine move, and being told off for finding
   // one would be teaching a column rather than an idea. The solver's verdict on
@@ -3330,12 +3473,10 @@ function tacticDrop(col) {
   const verdict = taught ? 'taught' : judgeAlternative(drill, col);
   if (!verdict) {
     tactic.wrong++;
-    // The most useful correction is the concrete one: if that drop lets them
-    // finish next move, say so instead of repeating the lesson's nudge.
-    const gift = handsThemFour(col);
-    let msg = gift ? 'That lets them make four next move.' : t.nudge;
+    let msg = describeMistake(col, t.nudge);
     if (tactic.wrong >= 2) msg += ' Tap Show me and I will point.';
     tacticWrong(col, msg);
+    if (tcRetryBtn) tcRetryBtn.hidden = false;
     return;
   }
 
@@ -3377,7 +3518,9 @@ function drillSolved() {
   const t = TACTICS[tactic.i];
   tactic.busy = false;
   tactic.phase = 'solved';
+  tactic.clean[tactic.drill] = tactic.wrong === 0; // solved without a wrong turn
   if (tcShowBtn) tcShowBtn.hidden = true;
+  if (tcRetryBtn) tcRetryBtn.hidden = true;
   if (tcNextBtn) {
     tcNextBtn.hidden = false;
     setTacticNextLabel(tactic.drill < t.drills.length - 1 ? 'Next position' : 'Finish');
@@ -3385,14 +3528,72 @@ function drillSolved() {
   renderTacticSteps();
 }
 
+// Restart the drill you are on, from the position it started in.
+function retryDrill() {
+  if (tactic.phase === 'lesson' || tactic.phase === 'done') return;
+  startDrill(tactic.drill);
+}
+
+// --- convert drills -----------------------------------------------------------
+// You play the tactic through to the four against a defence solved live. Every
+// move of yours is checked before it lands: if it throws the win away it simply
+// isn't played, and the teacher says why. There is no way to fail, only to take
+// longer — which is the right shape for a lesson.
+function convertDrop(col, drill, gen) {
+  const child = cloneBoard(tactic.board);
+  const landing = dropDisc(child, col, P1);
+  const won = !!checkWin(child, landing.row, landing.col);
+  if (!won) {
+    const solved = solveBoard(child, P2, { budget: PUZZLE_SOLVE_BUDGET });
+    // score < 0 for them means you are still winning; anything else drops the win.
+    if (!solved || solved.score >= 0) {
+      tactic.wrong++;
+      tacticWrong(col, describeMistake(col, 'That lets the win slip. Keep the threats coming.'));
+      if (tcRetryBtn) tcRetryBtn.hidden = false;
+      return;
+    }
+  }
+  tactic.busy = true;
+  tactic.drillMoves++;
+  tacticPlace(col, P1, (row) => {
+    if (tactic.gen !== gen) return;
+    const cells = checkWin(tactic.board, row, col);
+    if (cells) {
+      cells.forEach(([wr, wc]) => cellIn(tacticBoardEl, wr, wc).querySelector('.disc')?.classList.add('win'));
+      sound.win();
+      haptic([12, 40, 18]);
+      const par = tactic.drillMoves <= drill.winIn;
+      teacherSay(par
+        ? `Four, in ${tactic.drillMoves}. That is the idea carried all the way through.`
+        : 'Four. Slower than it had to be, but the idea was right.', 'pleased');
+      drillSolved();
+      return;
+    }
+    markCells(newThreats(drill.grid, tactic.board));
+    sound.aha();
+    setTimeout(() => {
+      if (tactic.gen !== gen) return;
+      const reply = puzzleBestDefence(tactic.board);
+      if (reply == null) { drillSolved(); return; }
+      tacticPlace(reply, P2, () => {
+        if (tactic.gen !== gen) return;
+        clearTacticMarks();
+        tactic.busy = false;
+        const left = Math.max(0, drill.winIn - tactic.drillMoves);
+        teacherSay(left ? `They defend. Keep going — ${left} move${left === 1 ? '' : 's'} to the four.` : 'They defend. Finish it.');
+      });
+    }, 700);
+  });
+}
+
 function finishTactic() {
   const t = TACTICS[tactic.i];
   tactic.phase = 'done';
   tactic.busy = false;
-  if (!tacticProgress.learned.includes(t.id)) {
-    tacticProgress.learned.push(t.id);
-    saveTacticProgress();
-  }
+  if (!tacticProgress.learned.includes(t.id)) tacticProgress.learned.push(t.id);
+  tacticProgress.review = tacticProgress.review.filter((id) => id !== t.id); // rust knocked off
+  tacticProgress.at = null; // nothing half-finished any more
+  saveTacticProgress();
   clearTacticMarks();
   teacherSay(t.close, 'pleased');
   sound.win();
@@ -3404,6 +3605,162 @@ function finishTactic() {
     tcNextBtn.hidden = false;
     setTacticNextLabel(tactic.i < TACTICS.length - 1 ? 'Next tactic' : 'Done');
   }
+  renderTacticSteps();
+}
+
+// ---------------------------------------------------------------- the exam
+// Drills teach you to execute an idea you have just been told about. The exam
+// tests the harder half: recognising which idea a position is asking for, with
+// nobody telling you. Miss one and that tactic goes back on the list to review.
+
+const EXAM_LENGTH = 6;
+const CHOICES = 3; // the right answer plus two decoys
+
+function examReady() {
+  return tacticProgress.learned.length >= 3;
+}
+
+function startExam() {
+  const learned = TACTICS.filter((t) => tacticProgress.learned.includes(t.id));
+  const pool = learned.length >= 3 ? learned : TACTICS;
+  const questions = [];
+  const bag = [...pool];
+  while (questions.length < Math.min(EXAM_LENGTH, pool.length * 2) && bag.length) {
+    const t = bag.splice(Math.floor(Math.random() * bag.length), 1)[0];
+    // Recognition, not conversion: the single-move drills are the fair test.
+    const drills = t.drills.filter((d) => !d.convert);
+    if (!drills.length) continue;
+    questions.push({ tactic: t, drill: drills[Math.floor(Math.random() * drills.length)] });
+    if (!bag.length && questions.length < EXAM_LENGTH) bag.push(...pool);
+  }
+  exam.questions = questions;
+  exam.at = 0;
+  exam.right = 0;
+  exam.missed = new Set();
+  tactic.i = 0;
+  tactic.gen++;
+  tactic.clean = [];
+  if (tacticTitleEl) tacticTitleEl.textContent = 'Final exam';
+  showScreen('screen-tactic', 'fwd');
+  teacherEl?.classList.add('is-active');
+  askExam();
+}
+
+function askExam() {
+  const q = exam.questions[exam.at];
+  if (!q) { endExam(); return; }
+  tactic.gen++;
+  tactic.phase = 'exam-name';
+  tactic.busy = false;
+  tactic.wrong = 0;
+  tactic.board = decodePuzzleGrid(q.drill.grid);
+  paintTacticBoard(tactic.board);
+  clearTacticMarks();
+  teacherSay(`${exam.at + 1} of ${exam.questions.length}. Look at the position. Which idea is it asking for?`);
+  renderExamChoices(q);
+  if (tcShowBtn) tcShowBtn.hidden = true;
+  if (tcRetryBtn) tcRetryBtn.hidden = true;
+  if (tcNextBtn) tcNextBtn.hidden = true;
+  renderTacticSteps();
+}
+
+function renderExamChoices(q) {
+  if (!tacticChoicesEl) return;
+  const others = TACTICS.filter((t) => t.id !== q.tactic.id);
+  const picks = [q.tactic];
+  while (picks.length < Math.min(CHOICES, TACTICS.length) && others.length) {
+    picks.push(others.splice(Math.floor(Math.random() * others.length), 1)[0]);
+  }
+  picks.sort(() => Math.random() - 0.5);
+  tacticChoicesEl.hidden = false;
+  // The three buttons need room, so the board gives some up while they're up.
+  $('#screen-tactic')?.classList.add('is-choosing');
+  tacticChoicesEl.innerHTML = '';
+  for (const t of picks) {
+    const b = document.createElement('button');
+    b.className = 'teach-choice';
+    b.dataset.id = t.id;
+    b.textContent = t.name;
+    tacticChoicesEl.appendChild(b);
+  }
+}
+
+function answerExam(id) {
+  if (tactic.phase !== 'exam-name') return;
+  const q = exam.questions[exam.at];
+  const right = id === q.tactic.id;
+  tacticChoicesEl.querySelectorAll('.teach-choice').forEach((b) => {
+    if (b.dataset.id === q.tactic.id) b.classList.add('is-right');
+    else if (b.dataset.id === id) b.classList.add('is-wrong');
+    b.disabled = true;
+  });
+  if (right) {
+    sound.aha();
+    teacherSay(`${q.tactic.name}. Now play it.`, 'pleased');
+  } else {
+    sound.nope();
+    exam.missed.add(q.tactic.id);
+    teacherSay(`No — this one is ${q.tactic.name.toLowerCase()}. Play it and you will see why.`, 'stern');
+  }
+  exam.namedRight = right;
+  // Naming it is half the question; the other half is finding the move.
+  setTimeout(() => {
+    hideExamChoices();
+    tactic.phase = 'exam-play';
+    tactic.busy = false;
+  }, right ? 700 : 1600);
+}
+
+function examDrop(col) {
+  const q = exam.questions[exam.at];
+  const drill = q.drill;
+  const ok = drill.good.includes(col) || judgeAlternative(drill, col);
+  if (!ok) {
+    tactic.wrong++;
+    exam.missed.add(q.tactic.id);
+    tacticWrong(col, describeMistake(col, q.tactic.nudge));
+    return;
+  }
+  const gen = tactic.gen;
+  tactic.busy = true;
+  tacticPlace(col, P1, () => {
+    if (tactic.gen !== gen) return;
+    markCells(drill.good.includes(col) ? drill.show : newThreats(drill.grid, tactic.board));
+    sound.aha();
+    if (exam.namedRight && tactic.wrong === 0) exam.right++;
+    teacherSay(q.tactic.why, 'pleased');
+    tactic.phase = 'exam-done';
+    if (tcNextBtn) {
+      tcNextBtn.hidden = false;
+      setTacticNextLabel(exam.at < exam.questions.length - 1 ? 'Next question' : 'See how you did');
+    }
+    renderTacticSteps();
+  });
+}
+
+function endExam() {
+  tactic.phase = 'exam-over';
+  tactic.busy = false;
+  clearTacticMarks();
+  hideExamChoices();
+  // Anything you fumbled goes back on the list, so the ticks mean something.
+  tacticProgress.review = [...exam.missed];
+  tacticProgress.examBest = Math.max(tacticProgress.examBest || 0, exam.right);
+  saveTacticProgress();
+  const n = exam.questions.length;
+  const perfect = exam.right === n;
+  teacherSay(perfect
+    ? `${exam.right} out of ${n}. You know these. Go and use them.`
+    : `${exam.right} out of ${n}. The ones you missed are marked on the list — go over them again.`, 'pleased');
+  if (perfect) {
+    sound.win();
+    if (!prefersReducedMotion() && puzzleConfettiLayer) {
+      spawnConfetti(90, puzzleConfettiLayer, ['#f5c451', '#7cff6b', '#3dd7ff', PUZZLE_COLORS[P1], PUZZLE_COLORS[P2]]);
+    }
+  }
+  if (tcShowBtn) tcShowBtn.hidden = true;
+  if (tcRetryBtn) tcRetryBtn.hidden = true;
+  if (tcNextBtn) { tcNextBtn.hidden = false; setTacticNextLabel('Back to tactics'); }
   renderTacticSteps();
 }
 
@@ -3420,6 +3777,8 @@ function tacticNext() {
     else finishTactic();
     return;
   }
+  if (tactic.phase === 'exam-done') { exam.at++; askExam(); return; }
+  if (tactic.phase === 'exam-over') { openTactics(); return; }
   if (tactic.phase === 'done') {
     if (tactic.i < TACTICS.length - 1) enterTactic(tactic.i + 1);
     else openTactics();
@@ -3428,6 +3787,11 @@ function tacticNext() {
 
 // "Show me": the staff comes down and points at the column.
 function tacticShowMe() {
+  if (tactic.phase === 'lesson') {
+    const p = TACTICS[tactic.i].lesson[tactic.page];
+    if (p.play) playDemo(p);
+    return;
+  }
   if (tactic.phase === 'drill') {
     const col = TACTICS[tactic.i].drills[tactic.drill].good[0];
     pointAtColumn(col);
@@ -3452,7 +3816,7 @@ function pointAtColumn(col) {
   for (let r = 0; r < ROWS; r++) cellIn(tacticBoardEl, r, col).classList.add('hint');
   const row = landingRow(tactic.board, col);
   if (row < 0) return;
-  const ghost = spawnDisc(tacticBoardEl, row, col, PUZZLE_COLORS[P1]);
+  const ghost = spawnDisc(tacticBoardEl, row, col, PUZZLE_COLORS[P1], { ghost: true });
   ghost.classList.add('ghost');
 }
 
@@ -3684,10 +4048,20 @@ function wire() {
   });
   tcNextBtn?.addEventListener('click', tacticNext);
   tcShowBtn?.addEventListener('click', tacticShowMe);
+  tcRetryBtn?.addEventListener('click', retryDrill);
+  examBtn?.addEventListener('click', startExam);
+  tacticChoicesEl?.addEventListener('click', (e) => {
+    const pick = e.target.closest('.teach-choice');
+    if (pick && !pick.disabled) answerExam(pick.dataset.id);
+  });
+  reviewLearnBtn?.addEventListener('click', () => {
+    const i = TACTICS.findIndex((t) => t.id === reviewLearnBtn.dataset.tactic);
+    if (i >= 0) enterTactic(i);
+  });
   teacherBubbleEl?.addEventListener('click', finishTeacherLine);
   bindBoardAim(tacticBoardEl, {
     canPlay: () => currentScreen === 'screen-tactic' && !tactic.busy &&
-      (tactic.phase === 'drill' || tactic.phase === 'finish'),
+      (tactic.phase === 'drill' || tactic.phase === 'finish' || tactic.phase === 'exam-play'),
     landing: (col) => landingRow(tactic.board, col),
     colour: () => PUZZLE_COLORS[P1],
     drop: tacticDrop,

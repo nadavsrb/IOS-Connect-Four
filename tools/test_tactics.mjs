@@ -11,6 +11,9 @@ import {
   P1, P2, ROWS, COLS, EMPTY,
   createBoard, cloneBoard, dropDisc, checkWin, legalMoves, landingRow, winningSquares,
 } from '../js/engine.js';
+import {
+  playableNow, openThreats, afterDrop, colsWinningNow, threatDirs, poisonedCols, forkCols,
+} from '../js/patterns.js';
 import { solveBoard } from '../js/solver.js';
 import { TACTICS } from '../js/tactics.js';
 
@@ -21,11 +24,6 @@ function ok(name, cond) {
 }
 
 const solve = (b, p) => solveBoard(b, p, { budget: 60_000_000 });
-const playableNow = (b, r, c) => landingRow(b, c) === r;
-const openThreats = (b, p) => winningSquares(b, p).filter(([r, c]) => playableNow(b, r, c));
-const afterDrop = (b, col, p) => { const child = cloneBoard(b); const l = dropDisc(child, col, p); return { child, ...l }; };
-const winsNow = (b, col, p) => { const d = afterDrop(b, col, p); return !!checkWin(d.child, d.row, d.col); };
-const colsWinningNow = (b, p) => legalMoves(b).filter((c) => winsNow(b, c, p));
 
 function decode(grid) {
   const board = createBoard();
@@ -78,34 +76,10 @@ function newSquares(before, after) {
   return winningSquares(after, P1).filter(([r, c]) => !had.has(`${r},${c}`));
 }
 
-// Which lines through the disc at (r, c) are one square short of four. Vertical is
-// left out on purpose: the seven is a row meeting a diagonal.
-const DIRS = { row: [0, 1], diagUp: [-1, 1], diagDown: [1, 1] };
-function threatDirs(b, p, r, c) {
-  const found = new Set();
-  for (const [name, [dr, dc]] of Object.entries(DIRS)) {
-    for (let s = -3; s <= 0; s++) {
-      let mine = 0;
-      let empty = 0;
-      let inBounds = true;
-      for (let k = 0; k < 4; k++) {
-        const rr = r + dr * (s + k);
-        const cc = c + dc * (s + k);
-        if (rr < 0 || rr >= ROWS || cc < 0 || cc >= COLS) { inBounds = false; break; }
-        if (b[rr][cc] === p) mine++;
-        else if (b[rr][cc] === EMPTY) empty++;
-        else { inBounds = false; break; }
-      }
-      if (inBounds && mine === 3 && empty === 1) found.add(name);
-    }
-  }
-  return found;
-}
-
 console.log('Tactics: curriculum shape + solver-proven drills\n');
 
 // --- the curriculum itself ---------------------------------------------------
-ok('eight tactics ship', TACTICS.length === 8);
+ok('ten tactics ship', TACTICS.length === 10);
 ok('ids are unique', new Set(TACTICS.map((t) => t.id)).size === TACTICS.length);
 
 for (const t of TACTICS) {
@@ -138,7 +112,12 @@ for (const t of TACTICS) {
     const { board, counts } = decode(d.grid);
     ok(`${label} grid is 42 cells`, d.grid.length === ROWS * COLS);
     ok(`${label} obeys gravity`, !floats(board));
-    ok(`${label} is red's move (equal discs)`, counts[1] === counts[2]);
+    // Red is always you and always to move. Equal discs means you opened; one
+    // fewer means they did — which is exactly what the second-player lesson needs.
+    const youOpened = counts[1] === counts[2];
+    ok(`${label} is red's move`, youOpened || counts[1] === counts[2] - 1);
+    ok(`${label} is on the right side of the move order`,
+      t.id === 'claimeven' ? !youOpened : youOpened);
     ok(`${label} is not already won`, !checkWinAnywhere(board));
     ok(`${label} has a legal answer`, d.good.length > 0 && d.good.every((c) => landingRow(board, c) >= 0));
     ok(`${label} isn't a one-move giveaway`, colsWinningNow(board, P1).length === 0);
@@ -178,6 +157,14 @@ for (const t of TACTICS) {
     });
     ok(`${label} 'follow' matches the position`, !!d.follow === forced);
 
+    // A convert drill is played out live, so it has to be a win worth carrying
+    // and full enough that solving each of your moves stays instant.
+    if (d.convert) {
+      ok(`${label} convert drill wins`, d.values[d.good[0]] > 0);
+      ok(`${label} convert drill takes 2-4 moves`, d.winIn >= 2 && d.winIn <= 4);
+      ok(`${label} convert drill is a full enough board`, counts[1] + counts[2] >= 20);
+    }
+
     // Per-tactic shape, re-derived rather than taken on trust.
     if (t.id === 'fork') {
       ok(`${label} really is a fork (2+ reachable threats)`, openThreats(d0.child, P1).length >= 2);
@@ -213,6 +200,20 @@ for (const t of TACTICS) {
       ok(`${label} the threat it builds is on an odd row`,
         built.length > 0 && built.every(([r]) => r % 2 === 1));
       ok(`${label} the threat is not immediate`, openThreats(d0.child, P1).length === 0);
+    }
+    if (t.id === 'claimeven') {
+      // The mirror of parity: even rows from the bottom are even board indices.
+      const built = newSquares(board, d0.child);
+      ok(`${label} the threat it builds is on an even row`,
+        built.length > 0 && built.every(([r]) => r % 2 === 0));
+      ok(`${label} the threat is not immediate`, openThreats(d0.child, P1).length === 0);
+    }
+    if (t.id === 'above') {
+      // One of yours directly over one of theirs, so theirs can never be taken.
+      const mine = winningSquares(d0.child, P1);
+      const theirs = winningSquares(d0.child, P2);
+      ok(`${label} caps one of their winning squares`,
+        theirs.some(([r, c]) => r > 0 && mine.some(([r2, c2]) => c2 === c && r2 === r - 1)));
     }
     if (t.id === 'defuse') {
       const forkable = legalMoves(board).some((c) => openThreats(afterDrop(board, c, P2).child, P2).length >= 2);
