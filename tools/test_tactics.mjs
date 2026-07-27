@@ -13,6 +13,7 @@ import {
 } from '../js/engine.js';
 import {
   playableNow, openThreats, afterDrop, colsWinningNow, threatDirs, poisonedCols, forkCols,
+  stackCols, sevenCols,
 } from '../js/patterns.js';
 import { solveBoard } from '../js/solver.js';
 import { TACTICS } from '../js/tactics.js';
@@ -95,6 +96,38 @@ for (const t of TACTICS) {
   // Lesson pages: every one shows a legal board and only points at empty squares.
   t.lesson.forEach((p, i) => {
     const { board } = decode(p.grid);
+    // A demonstration's moves have to be legal from the position it starts in.
+    if (p.play) {
+      const sim = decode(p.grid).board;
+      let legal = true;
+      p.play.forEach((c, k) => {
+        if (landingRow(sim, c) < 0) { legal = false; return; }
+        dropDisc(sim, c, k % 2 === 0 ? P1 : P2);
+      });
+      ok(`${tag} page ${i + 1} demonstration is playable`, legal);
+    }
+    // The counter-example must really lose: the shape is there, the move is the
+    // tactic's own, and the solver has to agree it hands the game over.
+    if (p.trap) {
+      const tb = decode(p.grid).board;
+      const played = p.play[0];
+      const d = afterDrop(tb, played, P1);
+      ok(`${tag} counter-example is red to move`, decode(p.grid).counts[1] === decode(p.grid).counts[2] ||
+        decode(p.grid).counts[1] === decode(p.grid).counts[2] - 1);
+      ok(`${tag} counter-example hands them a four`, colsWinningNow(d.child, P2).includes(p.play[1]));
+      // "The same shape, losing" is the whole lesson, so the losing move really has
+      // to be an instance of the shape this tactic teaches — not just any bad move.
+      // stackCols reports {col, pair}; the other two report bare columns.
+      const SHAPE = {
+        fork: (b) => forkCols(b, P1),
+        stack: (b) => stackCols(b, P1).map((s) => s.col),
+        seven: (b) => sevenCols(b, P1),
+      };
+      ok(`${tag} counter-example is the tactic's own shape`,
+        !!SHAPE[t.id] && SHAPE[t.id](tb).includes(played));
+      const r = solve(d.child, P2);
+      ok(`${tag} counter-example is a proven loss`, !!r && r.score > 0);
+    }
     ok(`${tag} page ${i + 1} grid is 42 cells`, p.grid.length === ROWS * COLS);
     ok(`${tag} page ${i + 1} obeys gravity`, !floats(board));
     ok(`${tag} page ${i + 1} says something`, typeof p.say === 'string' && p.say.length > 20);

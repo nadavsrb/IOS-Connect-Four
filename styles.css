@@ -1000,6 +1000,39 @@ body::before {
   font-variant-numeric: tabular-nums;
 }
 
+/* What the hinted move is. Sits over the bottom of the board so appearing and
+   disappearing never changes the board's size. */
+.hint-note {
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  transform: translateX(-50%);
+  margin: 0;
+  max-width: 94%;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke-bright);
+  background: rgba(10, 12, 30, 0.86);
+  color: var(--text);
+  font-size: 0.74rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 6;
+  animation: hint-note-in 0.22s ease both;
+}
+@keyframes hint-note-in {
+  from { opacity: 0; transform: translate(-50%, 6px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+:root[data-theme="minimal"] .hint-note {
+  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(24, 32, 66, 0.2);
+  box-shadow: 0 4px 14px rgba(30, 40, 80, 0.16);
+}
+
 /* Best-move hint: column highlight + ghost preview disc.
    Scoped through `.board` on purpose: the per-theme `.socket` rules further down
    the file are `:root[data-theme=…] .socket`, which ties on specificity and wins
@@ -1522,9 +1555,46 @@ body::before {
 .btn-sm { padding: 7px 13px; font-size: 0.76rem; }
 #btn-pz-next-unsolved[hidden] { display: none; }
 
+/* Filter the ladder by idea. Scrolls sideways rather than wrapping, so the grid
+   below it keeps its height whatever the theme does to the text. */
+.puzzle-filter {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+  /* The scrollbar is hidden, so fade the trailing edge instead — on a narrow phone a
+     hard-cut chip reads as a broken layout rather than "there is more this way". */
+  mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent 100%);
+}
+.puzzle-filter::-webkit-scrollbar { display: none; }
+.pz-filter-chip {
+  flex: none;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.pz-filter-chip.is-on {
+  color: var(--text);
+  border-color: rgba(245, 196, 81, 0.6);
+  background: rgba(245, 196, 81, 0.16);
+}
+
 .puzzle-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
+  /* Pack to the top: the grid is flex:1, so a short list (one idea filtered out of
+     the ladder) would otherwise stretch its rows and leave a dead band between them. */
+  align-content: start;
   gap: 10px;
   padding: 4px 2px 12px;
   flex: 1;
@@ -1703,6 +1773,14 @@ body::before {
 .tc-text { min-width: 0; }
 .tc-name { display: block; font-size: 0.98rem; font-weight: 800; }
 .tc-idea { display: block; font-size: 0.76rem; color: var(--text-dim); line-height: 1.35; margin-top: 2px; }
+/* What your own games say about this idea. */
+.tc-missed {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: #ffb020;
+}
 .tc-mark { width: 20px; height: 20px; color: var(--text-dim); opacity: 0.5; }
 .tc-mark svg { width: 100%; height: 100%; }
 .tactic-card.is-learned { border-color: rgba(124, 255, 107, 0.45); background: rgba(124, 255, 107, 0.09); }
@@ -2901,6 +2979,7 @@ body::before {
   .cell.shake { animation: none; }
   .cell.hint { animation: none; }
   .disc.ghost { animation: none; }
+  .hint-note { animation: none; }
   .disc.pop-hint { animation: none; }
   .disc.aim { animation: none; }
   .board.impact { animation: none; }

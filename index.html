@@ -219,6 +219,10 @@
           </div>
         </div>
         <div id="board" class="board" role="grid" aria-label="Connect Four board"></div>
+        <!-- What the hinted move *is*. Absolutely positioned on purpose: as a block
+             it would resize the board (which is sized off the viewport height)
+             every time the hint appeared. -->
+        <p id="hint-note" class="hint-note" role="status" hidden></p>
       </div>
 
       <div class="game-controls">
@@ -332,6 +336,11 @@
           <div class="stat-diff" id="stats-tactics"></div>
         </div>
 
+        <div class="stat-section" id="stat-weak-section" hidden>
+          <p class="field-label">Ideas you miss most <span class="stat-line" id="stat-weak-line"></span></p>
+          <div class="stat-diff" id="stats-weak"></div>
+        </div>
+
         <p class="stat-empty" id="stat-empty" hidden>Play a game to start building your stats.</p>
       </div>
     </section>
@@ -350,6 +359,10 @@
         <p class="puzzles-count" id="puzzles-count">0 / 0 solved</p>
         <button id="btn-pz-next-unsolved" class="btn btn-ghost btn-sm">Next unsolved ›</button>
       </div>
+
+      <!-- Filter the ladder by the idea its key move needs (built by JS from
+           patterns.js, so it always matches what the puzzles actually contain). -->
+      <div class="puzzle-filter" id="puzzle-filter" role="group" aria-label="Filter puzzles by idea"></div>
 
       <div class="puzzle-grid" id="puzzle-grid" role="list" aria-label="Puzzle list"></div>
     </section>
@@ -390,12 +403,15 @@
         <span class="icon-btn-spacer"></span>
       </header>
 
-      <p class="tactics-intro">Eight ideas that decide Connect Four games. A teacher explains each one, then sets you positions to try it on — every drill <b>proven by the solver</b>.</p>
+      <p class="tactics-intro"><span id="tactics-total">10</span> ideas that decide Connect Four games. A teacher explains each one, then sets you positions to try it on — every drill <b>proven by the solver</b>.</p>
       <div class="puzzles-progress"><span id="tactics-progress-fill"></span></div>
-      <p class="puzzles-count" id="tactics-count">0 / 8 learned</p>
+      <p class="puzzles-count" id="tactics-count">0 / 10 learned</p>
 
       <div class="tactic-list" id="tactic-list" role="list" aria-label="Tactics"></div>
 
+      <button id="btn-tactic-weakest" class="btn btn-ghost btn-wide exam-cta" hidden>
+        <span class="ico" data-icon="bulb"></span> <span id="weakest-label">Practise my weakest</span>
+      </button>
       <button id="btn-tactic-exam" class="btn btn-primary btn-wide exam-cta" hidden>
         <span class="ico" data-icon="cap"></span> <span class="exam-label">Final exam — which idea is this?</span>
       </button>
@@ -455,6 +471,7 @@
       <div class="tactic-controls">
         <button id="tc-retry" class="btn btn-ghost" hidden><span class="ico" data-icon="restart"></span> Retry</button>
         <button id="tc-show" class="btn btn-ghost"><span class="ico" data-icon="bulb"></span> <span id="tc-show-label">Show me</span></button>
+        <button id="tc-practise" class="btn btn-ghost" hidden><span class="ico" data-icon="puzzle"></span> Practise in the puzzles</button>
         <button id="tc-next" class="btn btn-primary"><span id="tc-next-label">Next</span> <span class="ico" data-icon="play"></span></button>
       </div>
 

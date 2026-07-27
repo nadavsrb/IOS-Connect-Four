@@ -50,13 +50,28 @@ teacher walk you through the tactics that win games.</em></p>
   and proven by the exact solver** — the move you're asked for is the only move that works, though
   if you find one the solver rates just as highly he says so rather than marking you wrong, and when
   you do go wrong he tells you what *your* move did ("that lets them make four next move") instead of
-  repeating himself.
+  repeating himself. Three of the tactics also close with a **counter-example**: the same shape, on a
+  board where playing it *loses*, because the disc you drop lifts the opponent onto four first. That
+  page is solver-proven too — the boundary of an idea is part of the idea.
 - 🎓 **Final exam** — once a few tactics are learned, six mixed positions ask the harder question:
-  **which idea is this?** Name it from three choices, then play it. Anything you fumble is flagged
-  **needs review** on the list, so the ticks keep meaning something.
+  **which idea is this?** Name it from three choices, then play it. Every third question flips it
+  round and asks what **they** are about to win on, because spotting their threat is the half of the
+  skill a drill never tests. Anything you fumble is flagged **needs review** on the list, so the ticks
+  keep meaning something.
 - 🔎 **The lessons find you** — the game review already knows *that* a move cost you the game; now it
   knows *what* you missed. Blunder chips read "Move 12 · Player 2 −48% · **missed: two threats at
-  once**", and one tap opens that lesson. The idea arrives at the only moment anyone wants it.
+  once**", and one tap opens that lesson. Those misses are also **counted over time** (from your games
+  against the bot, where you're unambiguously red): the Tactics list badges the ideas that keep
+  catching you out, a **Practise my weakest** button jumps straight to the worst one, and the Stats
+  screen ranks *ideas you miss most*. The course itself stays in teaching order — it builds on
+  itself — so the badges guide you without shuffling the syllabus.
+- 💡 **The hint says what, not just where** — the in-game **Best move** hint now names the idea under
+  the column it rings: *"a fork — two threats at once"*, *"blocks their four and builds one of
+  yours"*, *"this wins — four in a row"*. The puzzle hint does the same. (The column is still the
+  engine's choice; the label only describes the shape of it.)
+- 🧩🎓 **Puzzles tagged by idea** — every one of the 56 puzzles is classified by the idea its key move
+  needs, so the ladder can be **filtered** (Forks · Sevens · Stacks · Block and build · The middle ·
+  Win now) and a finished lesson offers *"Practise in the puzzles ›"* pre-filtered to that idea.
 - 📊 **Win-% eval bar + best move** — an optional bar (toggle **📊 Win odds** in-game) shows each
   player's chance to win, like a chess eval bar. In the opening/midgame it's a turn-aware engine
   estimate; from the game's second half on it becomes **exact**, solved by a bitboard solver
@@ -205,7 +220,7 @@ published result for the solved game rather than measured here.
 does it stack two winning squares in one column?), and every candidate that matches is handed to the
 solver, which has to agree the tactical move is the *only* move that works — the only winning move
 for an attacking idea, the only non-losing one for a defensive idea. `tools/test_tactics.mjs`
-re-proves all of it from scratch (724 checks) and independently re-derives each tactic's shape, so a
+re-proves all of it from scratch (753 checks) and independently re-derives each tactic's shape, so a
 drill can't teach a move that doesn't work. Each drill also ships the solver's verdict on **every**
 column, so the app can judge what you actually played against the move it was going to suggest — a
 move that comes to the same thing is praised, not corrected.

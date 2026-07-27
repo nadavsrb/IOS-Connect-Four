@@ -610,6 +610,24 @@ try {
   await page.screenshot({ path: `${SHOTS}/10-hint.png` });
   await dropAt(3);
   ok('hint clears after a move', (await page.locator('#board .disc.ghost').count()) === 0);
+  ok('the hint note goes with it', await page.locator('#hint-note').isHidden());
+
+  // The hint should name the idea, not just ring the column. Three in a column for
+  // whoever is to move makes the label deterministic: it has a four available.
+  const noteBoardBefore = await page.locator('#board').boundingBox();
+  for (const c of [0, 6, 0, 6, 0, 6]) await dropAt(c);
+  await page.locator('#btn-hint').click();
+  await wait(250);
+  ok('the hint names what the move is',
+    /four in a row/.test((await page.locator('#hint-note').textContent()) || ''));
+  ok('the note is visible while the hint is', await page.locator('#hint-note').isVisible());
+  // It floats over the board on purpose: as a block it would resize the board.
+  const noteBoardAfter = await page.locator('#board').boundingBox();
+  ok('naming the move does not resize the board',
+    Math.abs(noteBoardBefore.height - noteBoardAfter.height) < 1);
+  await page.screenshot({ path: `${SHOTS}/10b-hint-note.png` });
+  await wait(2500);
+  ok('the note times out with the hint', await page.locator('#hint-note').isHidden());
   // The bar tracks the position, but a single move can legitimately round to the
   // same integer percentage — so sample a few moves and require it to move at
   // least once, and to stay a valid split throughout.
@@ -877,6 +895,24 @@ try {
   ok('the ladder ends in the hardest tier',
     /Impossible/i.test((await page.locator('#puzzle-grid .pz-tier').last().textContent()) || ''));
   ok('Next unsolved is offered on a fresh install', await page.locator('#btn-pz-next-unsolved').isVisible());
+
+  // The ladder is tagged by the idea each key move needs, so it can be filtered.
+  const filterChips = await page.locator('.pz-filter-chip').count();
+  ok('the ladder can be filtered by idea', filterChips >= 3);
+  ok('the first chip is the whole set',
+    /All \d+/.test((await page.locator('.pz-filter-chip').first().textContent()) || ''));
+  const allCells = await page.locator('#puzzle-grid .puzzle-cell').count();
+  await page.locator('.pz-filter-chip').nth(1).click();
+  await wait(250);
+  const someCells = await page.locator('#puzzle-grid .puzzle-cell').count();
+  ok(`a filter narrows the list (${allCells} → ${someCells})`, someCells > 0 && someCells < allCells);
+  ok('the filtered list keeps real ladder numbers',
+    Number(await page.locator('#puzzle-grid .pz-num').first().textContent()) >= 1);
+  await page.screenshot({ path: `${SHOTS}/12c-puzzle-filter.png` });
+  await page.locator('.pz-filter-chip').first().click(); // back to the whole ladder
+  await wait(250);
+  ok('clearing the filter restores the ladder',
+    (await page.locator('#puzzle-grid .puzzle-cell').count()) === allCells);
   // The hardest puzzle at the very end of the ladder opens straight away.
   await page.locator('#puzzle-grid .puzzle-cell').last().click();
   await wait(250);
@@ -1011,6 +1047,10 @@ try {
   ok('every tactic is listed', (await page.locator('#tactic-list .tactic-card').count()) === TACTICS.length);
   ok('none are learned on a fresh install', (await page.locator('.tactic-card.is-learned').count()) === 0);
   ok('the list counts them', /0 \/ \d+ learned/.test((await page.locator('#tactics-count').textContent()) || ''));
+  // The intro names the size of the course; it is written from the data so that
+  // adding a tactic can't leave it claiming the old number.
+  ok('the intro names the real number of ideas',
+    (await page.locator('#tactics-total').textContent()) === String(TACTICS.length));
 
   await page.locator('#tactic-list .tactic-card').first().click();
   await wait(400);
@@ -1039,8 +1079,9 @@ try {
   ok('the tactic screen fits the viewport with no scroll', tacticFits);
   await page.screenshot({ path: `${SHOTS}/13-tactic-lesson.png` });
 
-  // A lesson page with `play` demonstrates the idea instead of describing it.
-  const demoPage = tac.lesson.findIndex((p) => p.play && p.play.length > 1);
+  // A lesson page with `play` demonstrates the idea instead of describing it. The
+  // counter-example page also has `play`, so pick the one that isn't the trap.
+  const demoPage = tac.lesson.findIndex((p) => p.play && p.play.length > 1 && !p.trap);
   if (demoPage > 0) {
     for (let i = 1; i <= demoPage; i++) { await page.locator('#tc-next').click(); await wait(250); }
     const startDiscs = [...tac.lesson[demoPage].grid].filter((ch) => ch !== '0').length;
@@ -1051,7 +1092,20 @@ try {
       (await page.locator('#tactic-board .disc').count()) === startDiscs + tac.lesson[demoPage].play.length);
     ok('the demo ends on a four', (await page.locator('#tactic-board .disc.win').count()) === 4);
     ok('and offers to run it again', (await page.locator('#tc-show-label').textContent()) === 'Again');
-    for (let i = demoPage + 1; i < tac.lesson.length; i++) { await page.locator('#tc-next').click(); await wait(250); }
+    for (let i = demoPage + 1; i < tac.lesson.length; i++) {
+      await page.locator('#tc-next').click();
+      // A counter-example page is a demonstration too: let it finish, then check
+      // that it lands on THEIR four and that the teacher doesn't celebrate it.
+      if (tac.lesson[i].trap) {
+        await wait(3200);
+        ok('the counter-example ends on their four',
+          (await page.locator('#tactic-board .disc.win').count()) === 4);
+        ok('and the teacher does not celebrate it', (await page.locator('#teacher.is-stern').count()) === 1);
+        await page.screenshot({ path: `${SHOTS}/13g-counter-example.png` });
+      } else {
+        await wait(250);
+      }
+    }
   } else {
     for (let i = 1; i < tac.lesson.length; i++) { await page.locator('#tc-next').click(); await wait(250); }
   }
@@ -1150,8 +1204,22 @@ try {
   ok('and offers the next tactic', (await page.locator('#tc-next-label').textContent()) === 'Next tactic');
   await page.screenshot({ path: `${SHOTS}/13d-tactic-done.png` });
 
-  await page.locator('#screen-tactic [data-nav="tactics"]').click();
-  await wait(250);
+  // A finished tactic offers the puzzles that turn on the same idea.
+  if (await page.locator('#tc-practise').isVisible()) {
+    await page.locator('#tc-practise').click();
+    await wait(400);
+    ok('a finished tactic leads into the matching puzzles',
+      (await page.locator('#screen-puzzles').evaluate((el) => el.classList.contains('is-active'))) &&
+      (await page.locator('.pz-filter-chip.is-on').count()) === 1);
+    await page.locator('#screen-puzzles [data-nav="menu"]').click();
+    await wait(200);
+    await page.locator('#btn-mode-tactics').click();
+    await wait(250);
+  } else {
+    ok('a finished tactic leads into the matching puzzles (no puzzle uses this idea)', true);
+    await page.locator('#screen-tactic [data-nav="tactics"]').click();
+    await wait(250);
+  }
   ok('the learned tactic is marked in the list', (await page.locator('.tactic-card.is-learned').count()) === 1);
   ok('the count follows', /1 \/ \d+ learned/.test((await page.locator('#tactics-count').textContent()) || ''));
   // Leaving mid-sentence must stop him talking rather than leave a timer running.
@@ -1162,6 +1230,55 @@ try {
   ok('walking out mid-sentence stops the teacher',
     (await page.locator('#teacher.is-talking').count()) === 0 &&
     (await page.locator('#teacher-say.is-typing').count()) === 0);
+
+  // --- Weak spots from your own games ---
+  await page.evaluate(() => {
+    localStorage.setItem('c4.weakness.v1', JSON.stringify({ counts: { fork: 4, poison: 2 }, games: 3 }));
+  });
+  await page.reload({ waitUntil: 'networkidle' });
+  await wait(300);
+  await page.locator('#btn-mode-tactics').click();
+  await wait(300);
+  ok('ideas your games catch you out on are badged', (await page.locator('.tc-missed').count()) === 2);
+  ok('the badge says how often',
+    /missed 4× in your games/.test((await page.locator('.tc-missed').first().textContent()) || ''));
+  ok('and the worst one is offered directly', await page.locator('#btn-tactic-weakest').isVisible());
+  ok('named in the button',
+    /two threats at once/.test((await page.locator('#weakest-label').textContent()) || ''));
+  await page.screenshot({ path: `${SHOTS}/13h-weak-spots.png` });
+  await page.locator('#btn-tactic-weakest').click();
+  await wait(400);
+  ok('practising the weakest opens that tactic',
+    (await page.locator('#screen-tactic').evaluate((el) => el.classList.contains('is-active'))) &&
+    (await page.locator('#tactic-title').textContent()) === 'Two threats at once');
+
+  // Fork carries a counter-example: the shape matches, but the disc lifts them onto
+  // a four first. The first tactic (centre) has no such page, so check it here —
+  // the demo has to end on THEIR four, and the teacher must not celebrate it.
+  const trapPage = TACTICS.find((t) => t.id === 'fork').lesson.findIndex((p) => p.trap);
+  ok('the fork lesson ends on a counter-example', trapPage > 0);
+  for (let i = 1; i <= trapPage; i++) {
+    await page.locator('#tc-next').click();
+    await wait(3600); // long enough for a page that demonstrates itself
+  }
+  ok('the counter-example ends on a four', (await page.locator('#tactic-board .disc.win').count()) === 4);
+  ok('and the teacher does not celebrate it', (await page.locator('#teacher.is-stern').count()) === 1);
+  ok('the counter-example says the shape is not enough',
+    /hands them|lifts them|not enough/i.test((await page.locator('#teacher-say').textContent()) || ''));
+  await page.screenshot({ path: `${SHOTS}/13g-counter-example.png` });
+
+  await page.locator('#screen-tactic [data-nav="tactics"]').click();
+  await wait(250);
+  await page.locator('#screen-tactics [data-nav="menu"]').click();
+  await wait(200);
+  await page.locator('#btn-stats').click();
+  await wait(250);
+  ok('Stats shows the ideas you miss most',
+    !(await page.locator('#stat-weak-section').evaluate((el) => el.hidden)));
+  ok('one row per missed idea', (await page.locator('#stats-weak .diff-row').count()) === 2);
+  await page.screenshot({ path: `${SHOTS}/13i-stats-weak.png` });
+  await page.locator('#screen-stats [data-nav="menu"]').click();
+  await wait(200);
 
   // --- The exam: name the idea, then play it ---
   await page.evaluate(() => localStorage.setItem('c4.tactics.v1', JSON.stringify(

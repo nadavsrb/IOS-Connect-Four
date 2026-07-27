@@ -22,10 +22,14 @@ import {
 } from '../js/engine.js';
 import {
   forkCols, poisonedCols, colsWinningNow, openThreats, handsThemFour, bestDefence, missedTactic,
+  tacticOfMove,
 } from '../js/patterns.js';
 import { chooseMove, choosePopoutMove, popoutMoves, applyPopoutMove, winChance, __test } from '../js/bot.js';
 import { solveBoard } from '../js/solver.js';
-import { emptyHistory, recordGame, summarize, winRate, MAX_HISTORY } from '../js/stats.js';
+import {
+  emptyHistory, recordGame, summarize, winRate, MAX_HISTORY,
+  emptyWeakness, recordMisses, topWeaknesses, missCount,
+} from '../js/stats.js';
 
 const same = (a, b) => a.length === b.length && [...a].sort().every((v, i) => v === [...b].sort()[i]);
 
@@ -165,6 +169,25 @@ console.log('Engine: landing rows and threat squares');
   ok('and it is reachable right now', reachable.some(([, c]) => c === 2));
 }
 
+console.log('Stats: which ideas keep catching you out');
+{
+  let w = emptyWeakness();
+  ok('a fresh store has nothing to report', topWeaknesses(w).length === 0 && w.games === 0);
+  w = recordMisses(w, ['fork', 'poison', 'fork']);
+  ok('repeats inside one game all count', missCount(w, 'fork') === 2);
+  ok('one game counted once', w.games === 1);
+  w = recordMisses(w, ['poison', 'poison', 'tempo']);
+  ok('a second game adds to the same tally', missCount(w, 'poison') === 3 && w.games === 2);
+  const top = topWeaknesses(w, 2);
+  ok('worst first', top[0].id === 'poison' && top[0].missed === 3);
+  ok('limited to what was asked for', top.length === 2);
+  ok('nulls and blanks are ignored', missCount(recordMisses(emptyWeakness(), [null, '', undefined]), 'fork') === 0);
+  ok('an unseen idea reports zero', missCount(w, 'claimeven') === 0);
+  // Ties have to be stable or the "practise my weakest" button would wander.
+  const tied = recordMisses(emptyWeakness(), ['stack', 'above']);
+  ok('ties break predictably', topWeaknesses(tied, 2)[0].id === 'above');
+}
+
 console.log('Patterns: the shapes the Tactics section teaches');
 {
   // Bottom row X X _ X: dropping into the gap makes four, so it is a winning
@@ -202,6 +225,20 @@ console.log('Patterns: the shapes the Tactics section teaches');
   for (const c of [1, 2, 3]) dropDisc(b, c, P2);
   ok('a poisoned column is one that lifts them onto a four',
     poisonedCols(b, P1).every((c) => handsThemFour(b, c, P1)));
+}
+{
+  // tacticOfMove names what a move *is* — the label under the best-move hint and
+  // the tag on each puzzle.
+  const b = createBoard();
+  for (const c of [2, 4]) dropDisc(b, c, P1);
+  for (const c of [0, 6]) dropDisc(b, c, P2);
+  ok('the fork move is named a fork', tacticOfMove(b, P1, 3) === 'fork');
+  ok('a quiet edge move is left unnamed', tacticOfMove(b, P1, 1) === null);
+  ok('a full/illegal column is unnamed', tacticOfMove(b, P1, 99) === null);
+  const w = createBoard();
+  for (const c of [0, 1, 2]) dropDisc(w, c, P1);
+  ok('a move that completes four is named a win', tacticOfMove(w, P1, 3) === 'win');
+  ok('naming a move leaves the board untouched', w[ROWS - 1][3] === EMPTY);
 }
 {
   // bestDefence must prefer taking a reachable threat when every move scores the

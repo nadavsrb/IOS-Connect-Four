@@ -30,6 +30,45 @@ export function recordGame(history, record) {
   return { games: games.length > MAX_HISTORY ? games.slice(-MAX_HISTORY) : games };
 }
 
+// --- which ideas you keep missing ---------------------------------------------
+// Fed by the post-game review, which can name the tactic behind a blunder
+// (js/patterns.js `missedTactic`). Counting them over time is what turns the
+// Tactics list from a fixed course into something that knows your weak spots.
+//
+// Only your own moves in games against the bot are counted: there you are
+// unambiguously red, whereas pass-and-play on one phone has two people at the
+// board and a friend's blunders must never show up as yours.
+
+export function emptyWeakness() {
+  return { counts: {}, games: 0 };
+}
+
+/**
+ * Fold one game's missed ideas in. `ids` may repeat — three missed forks in a
+ * game count three times, because that is what a weak spot looks like.
+ */
+export function recordMisses(weak, ids) {
+  const counts = { ...((weak && weak.counts) || {}) };
+  for (const id of ids || []) {
+    if (!id) continue;
+    counts[id] = (counts[id] || 0) + 1;
+  }
+  return { counts, games: (((weak && weak.games) || 0) + 1) };
+}
+
+/** The ideas you miss most, worst first. Ties break alphabetically for stability. */
+export function topWeaknesses(weak, limit = 3) {
+  const counts = (weak && weak.counts) || {};
+  return Object.keys(counts)
+    .filter((id) => counts[id] > 0)
+    .sort((a, b) => counts[b] - counts[a] || a.localeCompare(b))
+    .slice(0, limit)
+    .map((id) => ({ id, missed: counts[id] }));
+}
+
+/** How many times a single idea has caught you out. */
+export const missCount = (weak, id) => ((weak && weak.counts && weak.counts[id]) || 0);
+
 // Aggregate a history into the numbers the Stats screen shows.
 export function summarize(history) {
   const games = history && Array.isArray(history.games) ? history.games : [];

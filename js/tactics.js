@@ -7,7 +7,8 @@
 //            and optionally squares ('marks'), whole columns ('cols') or rows
 //            ('rows') to light up while it is on screen. A page with 'play' is a
 //            demonstration: those columns are dropped in turn (you, them, you) so
-//            the teacher shows the idea working instead of describing it.
+//            the teacher shows the idea working instead of describing it. A page
+//            marked 'trap' is the counter-example — the same shape, losing.
 //   close  — what the teacher says once you have finished all of its drills.
 //   drills — positions where YOU are red and to move. 'good' is the move the
 //            tactic is about, and the solver has confirmed it is the ONLY move
@@ -59,6 +60,7 @@ export const TACTICS = [
       { grid: '000000002020000102000020101001122201211210', say: 'A threat is an empty square that would give you four. One threat is polite. They just fill it.' },
       { grid: '000000002020000102000020101001122201211210', say: 'Two at once is a fork. They answer one. You take the other. That is how games are really won.', play: [2, 2, 4], marks: [[2, 2], [3, 4]] },
       { grid: '000000002020000102000020101001122201211210', say: 'Your turn. One move here makes two.' },
+      { grid: '000021000002100002210210112022011201221112', say: 'And now the same shape, losing. Two threats are worth nothing if your disc hands them four first.', play: [2, 2], trap: true },
     ],
     drills: [
       { grid: '000000002020000102000020101001122201211210', good: [2], follow: true,
@@ -83,6 +85,7 @@ export const TACTICS = [
       { grid: '001000000200201010011201201220120122122121', say: 'The best disc belongs to two lines at once. Three along a row, three down a diagonal. The shape looks like a 7.' },
       { grid: '001000000200201010011201201220120122122121', say: 'Look what it asks for. One square for the row. A different one for the diagonal. Two lines, one disc.', play: [3], marks: [[2, 1], [2, 4], [3, 4]] },
       { grid: '001000000200201010011201201220120122122121', say: 'Now find it. One move here starts both lines.' },
+      { grid: '000000000000001000000100202021010222211121', say: 'The same seven, on a board where it fails. Look what the disc you played gives them.', play: [2, 5], trap: true },
     ],
     drills: [
       { grid: '001000000200201010011201201220120122122121', good: [3], follow: false,
@@ -151,6 +154,7 @@ export const TACTICS = [
       { grid: '020000101000020100002020022122001121211121', say: 'The prettiest idea in the game. Two of your winning squares in one column, one directly above the other.' },
       { grid: '020000101000020100002020022122001121211121', say: 'They cannot block the low one without playing it. That lifts you to the high one. Block below, lose above.', play: [3, 2, 2], marks: [[3, 2], [4, 2]] },
       { grid: '020000101000020100002020022122001121211121', say: 'Find the move that stacks them.' },
+      { grid: '002000000110020111001022200221120112221012', say: 'Stacked threats, and still lost. Count what your move hands over before you admire the shape.', play: [3, 0], trap: true },
     ],
     drills: [
       { grid: '020000101000020100002020022122001121211121', good: [3], follow: true,

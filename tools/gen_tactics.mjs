@@ -16,7 +16,7 @@ import {
 } from '../js/engine.js';
 import {
   playableNow, openThreats, afterDrop, colsWinningNow, newSquares, threatDirs,
-  forkCols, stackCols, sevenCols, poisonedCols, aboveCols, bestDefence,
+  forkCols, stackCols, sevenCols, poisonedCols, aboveCols, bestDefence, handsThemFour,
 } from '../js/patterns.js';
 import { solveBoard } from '../js/solver.js';
 import { writeFileSync } from 'node:fs';
@@ -125,6 +125,7 @@ const SPECS = [
   {
     id: 'fork',
     convert: true, // ends in a win, so it can be carried through to the four
+    trap: 'And now the same shape, losing. Two threats are worth nothing if your disc hands them four first.',
     name: 'Two threats at once',
     idea: 'One threat gets blocked. Two open threats in one move cannot both be stopped.',
     ask: 'Find the move that makes two threats at once.',
@@ -149,6 +150,7 @@ const SPECS = [
   {
     id: 'seven',
     convert: true, // ends in a win, so it can be carried through to the four
+    trap: 'The same seven, on a board where it fails. Look what the disc you played gives them.',
     name: 'The seven',
     idea: 'One disc finishing two lines — three along a row, three down a diagonal.',
     ask: 'One move builds a row and a diagonal. Find it.',
@@ -238,6 +240,7 @@ const SPECS = [
   {
     id: 'stack',
     convert: true, // ends in a win, so it can be carried through to the four
+    trap: 'Stacked threats, and still lost. Count what your move hands over before you admire the shape.',
     name: 'Stack your threats',
     idea: 'Two of your winning squares in one column, one directly above the other.',
     ask: 'Put two of your winning squares in one column, one above the other.',
@@ -458,6 +461,34 @@ function forcedFinish(b, col) {
   });
 }
 
+// The counter-example: the tactic's own shape, on a position where playing it
+// LOSES. It happens when the move fills the square under one of their winning
+// squares — the shape alone is never the whole story, and that is the lesson.
+// Returns { grid, play } or null.
+function findTrap(spec, seen, seconds) {
+  const deadline = Date.now() + seconds * 1000;
+  while (Date.now() < deadline) {
+    const b = randomPosition(spec.range[0], spec.range[1], !!spec.odd);
+    if (!b) continue;
+    const key = gridStr(b);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const m = spec.match(b);
+    if (!m) continue;
+    const col = m.good[0];
+    // It has to lose *because* of the reply, so their four must be immediate.
+    if (!handsThemFour(b, col, P1)) continue;
+    const per = analyse(b);
+    if (!per) continue;
+    if (!(per.get(col) < 0)) continue; // the solver has to agree it loses
+    const d = afterDrop(b, col, P1);
+    const theirWin = colsWinningNow(d.child, P2)[0];
+    if (theirWin == null) continue;
+    return { grid: key, play: [col, theirWin] };
+  }
+  return null;
+}
+
 // TACTIC_ONLY=poison,stack limits the run while tuning a single pattern.
 const only = (process.env.TACTIC_ONLY || '').split(',').filter(Boolean);
 
@@ -467,10 +498,15 @@ const only = (process.env.TACTIC_ONLY || '').split(',').filter(Boolean);
 // prose-only run re-proves the whole curriculum on the way through.
 const reuse = process.env.TACTIC_REUSE === '1';
 let committed = new Map();
+const reuseTrap = new Map();
 if (reuse) {
   try {
     const mod = await import('../js/tactics.js');
     committed = new Map(mod.TACTICS.map((t) => [t.id, t.drills.map((d) => ({ grid: d.grid, convert: !!d.convert }))]));
+    for (const t of mod.TACTICS) {
+      const page = t.lesson.find((p) => p.trap);
+      if (page) reuseTrap.set(t.id, { grid: page.grid, play: page.play });
+    }
   } catch { /* no committed set yet — fall through to a full search */ }
 }
 
@@ -601,7 +637,15 @@ for (const spec of SPECS) {
   }
   if (convertDrill) drills.push(convertDrill);
 
-  results.push({ spec, drills });
+  // The counter-example page, where the same shape loses. Optional: if none turns
+  // up in the budget, the tactic simply ships without one.
+  let trap = null;
+  if (spec.trap) {
+    trap = reuseTrap.get(spec.id) || findTrap(spec, seen, Math.min(120, SECONDS_PER_TACTIC));
+    console.error(trap ? `${spec.id}: counter-example found` : `${spec.id}: no counter-example in budget`);
+  }
+
+  results.push({ spec, drills, trap });
 }
 
 // ---------------------------------------------------------------- lesson pages
@@ -644,7 +688,7 @@ const q = (s) => `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 const arr = (a) => `[${a.join(', ')}]`;
 const pairs = (a) => `[${a.map(([r, c]) => `[${r}, ${c}]`).join(', ')}]`;
 
-const blocks = results.map(({ spec, drills }) => {
+const blocks = results.map(({ spec, drills, trap }) => {
   const pages = spec.lesson.map((p) => {
     const built = buildPage(p, drills[0]);
     const bits = [`grid: ${q(built.grid)}`, `say: ${q(built.say)}`];
@@ -654,6 +698,11 @@ const blocks = results.map(({ spec, drills }) => {
     if (built.rows) bits.push(`rows: ${arr(built.rows)}`);
     return `      { ${bits.join(', ')} },`;
   }).join('\n');
+  // Appended last: the same idea, failing. Shown as a demonstration, so the
+  // teacher plays the losing move and their four lands on top of it.
+  const trapPage = trap
+    ? `\n      { grid: ${q(trap.grid)}, say: ${q(spec.trap)}, play: ${arr(trap.play)}, trap: true },`
+    : '';
   const rows = drills.map((d) =>
     `      { grid: ${q(d.grid)}, good: ${arr(d.good)}, follow: ${d.follow},` +
     (d.convert ? ` convert: true, winIn: ${d.winIn},` : '') + '\n' +
@@ -667,7 +716,7 @@ const blocks = results.map(({ spec, drills }) => {
     nudge: ${q(spec.nudge)},
     close: ${q(spec.close)},
     lesson: [
-${pages}
+${pages}${trapPage}
     ],
     drills: [
 ${rows}
@@ -684,7 +733,8 @@ const out = `// AUTO-GENERATED by tools/gen_tactics.mjs — do not edit by hand.
 //            and optionally squares ('marks'), whole columns ('cols') or rows
 //            ('rows') to light up while it is on screen. A page with 'play' is a
 //            demonstration: those columns are dropped in turn (you, them, you) so
-//            the teacher shows the idea working instead of describing it.
+//            the teacher shows the idea working instead of describing it. A page
+//            marked 'trap' is the counter-example — the same shape, losing.
 //   close  — what the teacher says once you have finished all of its drills.
 //   drills — positions where YOU are red and to move. 'good' is the move the
 //            tactic is about, and the solver has confirmed it is the ONLY move

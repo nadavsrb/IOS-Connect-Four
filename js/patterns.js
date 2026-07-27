@@ -228,4 +228,39 @@ export function missedTactic(board, mover, playedCol) {
   return null;
 }
 
-export const __test = { MISSES, DIRS };
+// The positive twin of MISSES: what a move *is*, not what it overlooked. Ordered
+// strongest first, so a move that both forks and blocks is called a fork.
+const DOES = [
+  ['win', (b, me, col) => winsNow(b, col, me)],
+  ['fork', (b, me, col) => forkCols(b, me).includes(col)],
+  ['stack', (b, me, col) => stackCols(b, me).some((s) => s.col === col)],
+  ['seven', (b, me, col) => sevenCols(b, me).includes(col)],
+  ['above', (b, me, col) => aboveCols(b, me).some((a) => a.col === col)],
+  // Takes the square they were about to win on, and leaves a threat behind.
+  ['tempo', (b, me, col) => {
+    const forced = openThreats(b, other(me));
+    if (!forced.some(([, c]) => c === col)) return false;
+    return newSquares(b, afterDrop(b, col, me).child, me).length > 0;
+  }],
+  // Nothing sharper, but it takes the middle and builds something there.
+  ['centre', (b, me, col) => col === 3 && newSquares(b, afterDrop(b, col, me).child, me).length > 0],
+];
+
+/**
+ * Name the idea a move embodies — used to label the best-move hint and to tag the
+ * puzzle set by the shape of its key move.
+ *
+ * Structural only, and deliberately so: whether a move is *best* is the solver's
+ * question, already answered by whoever chose the column. This says what the move
+ * does, and says nothing at all when it doesn't recognise the shape.
+ * @returns {string|null} a tactic id (or 'win'), or null
+ */
+export function tacticOfMove(board, player, col) {
+  if (col == null || landingRow(board, col) < 0) return null;
+  for (const [id, test] of DOES) {
+    if (test(board, player, col)) return id;
+  }
+  return null;
+}
+
+export const __test = { MISSES, DOES, DIRS };
